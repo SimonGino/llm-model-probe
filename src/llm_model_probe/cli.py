@@ -251,3 +251,40 @@ def export(
         console.print(f"[green]✓[/green] wrote {output}")
     else:
         print(text)
+
+
+@app.command()
+def ui(
+    port: int = typer.Option(8765, "--port"),
+    no_browser: bool = typer.Option(False, "--no-browser"),
+    dev: bool = typer.Option(
+        False, "--dev",
+        help="Dev mode: assume vite dev server at :5173, skip static mount",
+    ),
+) -> None:
+    """Start the local web UI."""
+    import os
+    import webbrowser
+    from pathlib import Path
+
+    import uvicorn
+
+    if dev:
+        os.environ["LLM_MODEL_PROBE_DEV"] = "1"
+    else:
+        pkg_root = Path(__file__).resolve().parents[2]
+        dist = pkg_root / "frontend" / "dist"
+        if not dist.exists():
+            console.print(
+                "[red]✗[/red] frontend not built. Run:\n"
+                "    cd frontend && npm install && npm run build\n"
+                "Or use --dev with `npm run dev` running on :5173."
+            )
+            raise typer.Exit(1)
+        os.environ["LLM_MODEL_PROBE_DIST"] = str(dist)
+
+    url = f"http://localhost:{port}"
+    console.print(f"[green]→[/green] {url}")
+    if not no_browser:
+        webbrowser.open(url)
+    uvicorn.run("llm_model_probe.api:app", host="127.0.0.1", port=port)

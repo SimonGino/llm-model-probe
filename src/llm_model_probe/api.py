@@ -357,3 +357,15 @@ def get_settings() -> dict:
         "retest_cooldown_hours": s.retest_cooldown_hours,
         "exclude_patterns": s.exclude_patterns,
     }
+
+
+# ---------- static frontend (production / docker) ----------
+
+_DIST = os.environ.get("LLM_MODEL_PROBE_DIST")
+if _DIST and not DEV_MODE:
+    from fastapi.staticfiles import StaticFiles
+    from pathlib import Path as _Path
+
+    _dist_path = _Path(_DIST)
+    if _dist_path.exists():
+        app.mount("/", StaticFiles(directory=_dist_path, html=True), name="static")
