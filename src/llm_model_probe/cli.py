@@ -130,3 +130,124 @@ def show(
         console.print_json(render_json([snap]))
         return
     render_show(snap, console)
+
+
+@app.command()
+def retest(
+    name_or_id: Optional[str] = typer.Argument(
+        None,
+        metavar="NAME_OR_ID",
+        help="Endpoint to retest; omit and use --all for all endpoints",
+    ),
+    all_: bool = typer.Option(False, "--all", help="Retest all endpoints"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Bypass cooldown (retest endpoints tested <24h ago)",
+    ),
+) -> None:
+    """Re-run probing for one or all endpoints."""
+    if not name_or_id and not all_:
+        raise typer.BadParameter("provide an endpoint name/id or use --all")
+    if name_or_id and all_:
+        raise typer.BadParameter("--all conflicts with a specific endpoint")
+
+    store = _store()
+    settings = load_settings()
+    runner = ProbeRunner(settings, console)
+
+    if all_:
+        targets = store.list_endpoints()
+    else:
+        assert name_or_id is not None
+        targets = [_resolve(store, name_or_id)]
+
+    if not targets:
+        console.print("[dim]No endpoints to retest.[/dim]")
+        return
+
+    from datetime import datetime, timedelta
+
+    cutoff = datetime.now() - timedelta(hours=settings.retest_cooldown_hours)
+    skipped: list[str] = []
+    todo: list[Endpoint] = []
+    for ep in targets:
+        last = store.last_tested_at(ep.id)
+        if all_ and not force and last and last >= cutoff:
+            skipped.append(ep.name)
+        else:
+            todo.append(ep)
+
+    for skipped_name in skipped:
+        console.print(
+            f"[dim]skip {skipped_name} (within cooldown, "
+            f"use --force to override)[/dim]"
+        )
+
+    async def run_all() -> None:
+        for ep in todo:
+            outcome = await runner.probe_endpoint(ep, allow_partial=True)
+            if outcome.list_error:
+                store.set_list_error(ep.id, outcome.list_error)
+            else:
+                store.set_list_error(ep.id, None)
+            if outcome.new_results is not None:
+                store.replace_model_results(ep.id, outcome.new_results)
+
+    asyncio.run(run_all())
+    console.print(
+        f"[green]✓[/green] retested {len(todo)} endpoint(s)"
+        f"{f', skipped {len(skipped)}' if skipped else ''}"
+    )
+
+
+@app.command()
+def rm(
+    name_or_id: str = typer.Argument(..., metavar="NAME_OR_ID"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+) -> None:
+    """Remove an endpoint (and its probe results)."""
+    store = _store()
+    ep = _resolve(store, name_or_id)
+    if not yes:
+        confirm = typer.confirm(f"Delete '{ep.name}' ({ep.id})?")
+        if not confirm:
+            console.print("[dim]aborted[/dim]")
+            raise typer.Exit(0)
+    store.delete_endpoint(ep.id)
+    console.print(f"[green]✓[/green] removed {ep.name}")
+
+
+@app.command()
+def export(
+    name_or_id: Optional[str] = typer.Argument(
+        None,
+        metavar="NAME_OR_ID",
+        help="Specific endpoint; omit for all",
+    ),
+    fmt: str = typer.Option("md", "--format", "-f", help="md | json"),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Output file; default stdout"
+    ),
+) -> None:
+    """Export probe report as Markdown or JSON."""
+    if fmt not in ("md", "json"):
+        raise typer.BadParameter("format must be 'md' or 'json'")
+    store = _store()
+    if name_or_id:
+        snaps = [_snapshot(store, _resolve(store, name_or_id))]
+    else:
+        snaps = [_snapshot(store, ep) for ep in store.list_endpoints()]
+
+    from .report import render_json, render_markdown
+
+    text = render_markdown(snaps) if fmt == "md" else render_json(snaps)
+
+    if output:
+        from pathlib import Path
+
+        Path(output).write_text(text, encoding="utf-8")
+        console.print(f"[green]✓[/green] wrote {output}")
+    else:
+        print(text)
