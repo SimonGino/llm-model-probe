@@ -249,3 +249,111 @@ def retest_all() -> dict:
 
     asyncio.run(run_all())
     return {"retested": len(eps)}
+
+
+# ---------- parse-paste + settings ----------
+
+import json as _json
+import re
+
+_DOTENV_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*(.+?)\s*$")
+_BEARER = re.compile(r"Authorization:\s*Bearer\s+(\S+)", re.IGNORECASE)
+_URL = re.compile(r"https?://[^\s'\"]+")
+
+
+def _guess_sdk(base_url: str) -> SdkType:
+    return "anthropic" if "anthropic" in base_url.lower() else "openai"
+
+
+def _parse_json(blob: str) -> dict | None:
+    try:
+        obj = _json.loads(blob)
+    except Exception:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    out: dict = {}
+    bu = obj.get("base_url") or obj.get("baseUrl") or obj.get("BASE_URL")
+    if bu:
+        out["base_url"] = str(bu).rstrip("/")
+    ak = obj.get("api_key") or obj.get("apiKey") or obj.get("API_KEY")
+    if ak:
+        out["api_key"] = str(ak)
+    if isinstance(obj.get("models"), list):
+        out["models"] = [str(m) for m in obj["models"]]
+    if obj.get("name"):
+        out["name"] = str(obj["name"])
+    if obj.get("sdk") in ("openai", "anthropic"):
+        out["sdk"] = obj["sdk"]
+    elif "base_url" in out:
+        out["sdk"] = _guess_sdk(out["base_url"])
+    return out or None
+
+
+def _parse_curl(blob: str) -> dict | None:
+    if "curl" not in blob.lower():
+        return None
+    out: dict = {}
+    bearer = _BEARER.search(blob)
+    if bearer:
+        out["api_key"] = bearer.group(1).strip("\"'")
+    url_match = _URL.search(blob)
+    if url_match:
+        url = url_match.group(0).rstrip(",;")
+        if "/v1" in url:
+            url = url.split("/v1", 1)[0] + "/v1"
+        else:
+            from urllib.parse import urlsplit
+            sp = urlsplit(url)
+            url = f"{sp.scheme}://{sp.netloc}"
+        out["base_url"] = url
+        out["sdk"] = _guess_sdk(url)
+    return out or None
+
+
+def _parse_dotenv(blob: str) -> dict | None:
+    out: dict = {}
+    for line in blob.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = _DOTENV_LINE.match(line)
+        if not m:
+            continue
+        key, raw = m.group(1).upper(), m.group(2).strip().strip("\"'")
+        if "BASE_URL" in key or key.endswith("_URL") or key == "URL":
+            out["base_url"] = raw.rstrip("/")
+        elif "API_KEY" in key or key.endswith("_KEY") or key == "KEY":
+            out["api_key"] = raw
+    if out and "base_url" in out:
+        out["sdk"] = _guess_sdk(out["base_url"])
+    return out or None
+
+
+@app.post("/api/parse-paste", response_model=PasteParseResponse)
+def parse_paste(req: PasteParseRequest) -> PasteParseResponse:
+    blob = req.blob.strip()
+    for name, fn in (("json", _parse_json), ("curl", _parse_curl),
+                     ("dotenv", _parse_dotenv)):
+        result = fn(blob)
+        if result and ("base_url" in result or "api_key" in result):
+            both = "base_url" in result and "api_key" in result
+            return PasteParseResponse(
+                suggested=result,
+                confidence=1.0 if both else 0.6,
+                parser=name,  # type: ignore[arg-type]
+            )
+    return PasteParseResponse(suggested={}, confidence=0.0, parser="none")
+
+
+@app.get("/api/settings")
+def get_settings() -> dict:
+    s = load_settings()
+    return {
+        "concurrency": s.concurrency,
+        "timeout_seconds": s.timeout_seconds,
+        "max_tokens": s.max_tokens,
+        "prompt": s.prompt,
+        "retest_cooldown_hours": s.retest_cooldown_hours,
+        "exclude_patterns": s.exclude_patterns,
+    }
