@@ -3,6 +3,7 @@ import type {
   EndpointDetail,
   EndpointCreate,
   PasteSuggestion,
+  ModelResultPublic,
 } from "./types";
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -37,4 +38,10 @@ export const api = {
   retestAll: () => req<{ retested: number }>("POST", "/api/retest-all"),
   parsePaste: (blob: string) =>
     req<PasteSuggestion>("POST", "/api/parse-paste", { blob }),
+  probeModel: (id: string, model: string) =>
+    req<ModelResultPublic>(
+      "POST",
+      `/api/endpoints/${encodeURIComponent(id)}/probe-model`,
+      { model },
+    ),
 };

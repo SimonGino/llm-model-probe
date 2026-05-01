@@ -12,6 +12,7 @@ export interface EndpointSummary {
   list_error: string | null;
   available: number;
   failed: number;
+  total_models: number;
   last_tested_at: string | null;
   created_at: string;
   updated_at: string;
@@ -31,6 +32,7 @@ export interface ModelResultPublic {
 export interface EndpointDetail extends EndpointSummary {
   api_key_masked: string;
   models: string[];
+  excluded_by_filter: string[];
   results: ModelResultPublic[];
 }
 
