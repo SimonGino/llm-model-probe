@@ -1,0 +1,23 @@
+[project]
+name = "llm-model-probe"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "SimonGino", email = "rwjeek@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.97.0",
+    "openai>=2.33.0",
+    "pyyaml>=6.0.3",
+    "rich>=15.0.0",
+    "typer>=0.25.1",
+]
+
+[project.scripts]
+llm-model-probe = "llm_model_probe:main"
+
+[build-system]
+requires = ["uv_build>=0.10.9,<0.11.0"]
+build-backend = "uv_build"
