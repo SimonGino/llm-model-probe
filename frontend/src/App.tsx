@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import EndpointTable from "@/components/EndpointTable";
 import AddEndpointDialog from "@/components/AddEndpointDialog";
+import EndpointDetailDrawer from "@/components/EndpointDetailDrawer";
 
 export default function App() {
   const qc = useQueryClient();
@@ -17,7 +18,6 @@ export default function App() {
   });
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
-  void selected;
 
   return (
     <div className="min-h-screen p-6 max-w-6xl mx-auto">
@@ -46,6 +46,10 @@ export default function App() {
       )}
 
       <AddEndpointDialog open={showAdd} onClose={() => setShowAdd(false)} />
+      <EndpointDetailDrawer
+        idOrName={selected}
+        onClose={() => setSelected(null)}
+      />
     </div>
   );
 }
