@@ -106,6 +106,45 @@ You can switch modes by `rm`-ing and `add`-ing again.
 - Captures: success bool, latency, error class + message, first ~80 chars of response.
 - `models.list()` failure on retest keeps the prior snapshot so you don't lose data when a key briefly fails.
 
+## Web UI
+
+For a copy-paste friendly management page:
+
+```bash
+# 1. Build frontend (one time, or when frontend/ changes)
+cd frontend && npm install && npm run build && cd ..
+
+# 2. Launch
+probe ui                # opens browser at http://localhost:8765
+```
+
+Dev mode (hot reload):
+
+```bash
+# Terminal 1: backend
+probe ui --dev --no-browser
+
+# Terminal 2: frontend
+cd frontend && npm run dev
+# open http://localhost:5173
+```
+
+Features:
+- **Smart paste** — drop a JSON, dotenv block, or curl command into the Add dialog and it auto-fills the form.
+- One-click retest / delete per row.
+- "Retest all" button (blocks until done; no streaming progress in v1).
+- Detail drawer shows model-level status with masked API key.
+
+UI is local-only (binds to `127.0.0.1`). API keys are stored in the same SQLite file as the CLI; both share `~/.llm-model-probe/probes.db`.
+
+## Docker
+
+```bash
+docker compose up -d --build
+# UI on http://localhost:8765
+# DB volume mounted from host ~/.llm-model-probe
+```
+
 ## Project Layout
 
 ```
@@ -117,11 +156,15 @@ src/llm_model_probe/
   providers.py # async OpenAI/Anthropic SDK wrappers
   probe.py     # ProbeRunner: list/filter/probe orchestration
   report.py    # rich tables + markdown + json
-  cli.py       # typer commands
+  cli.py       # typer commands (add/list/show/retest/rm/export/ui)
+  api.py       # FastAPI app for the web UI
+frontend/      # Vite + TS + Tailwind + shadcn/ui SPA
 docs/
   specs/       # design docs
   plans/       # implementation plans
-tests/         # pytest suite
+tests/         # pytest suite (backend incl. API)
+Dockerfile
+docker-compose.yml
 ```
 
 ## Testing
@@ -132,5 +175,6 @@ uv run pytest -q
 
 ## Out of Scope
 
-Web UI, time-series history, scheduled probing, encrypted-at-rest keys.
-See `docs/specs/2026-05-01-design.md` for the full design rationale.
+Time-series history, scheduled probing, encrypted-at-rest keys, multi-user/auth.
+See `docs/specs/2026-05-01-design.md` and `docs/specs/2026-05-01-ui-design.md`
+for the full design rationale.
