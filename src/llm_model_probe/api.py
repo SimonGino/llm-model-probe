@@ -202,3 +202,50 @@ def create_endpoint(payload: EndpointCreate) -> EndpointDetail:
     fresh = store.get_endpoint(ep.id)
     assert fresh is not None
     return _detail(store, fresh)
+
+
+@app.delete("/api/endpoints/{name_or_id}", status_code=204)
+def delete_endpoint(name_or_id: str) -> None:
+    store = _store()
+    ep = store.get_endpoint(name_or_id)
+    if ep is None:
+        raise HTTPException(status_code=404, detail="endpoint not found")
+    store.delete_endpoint(ep.id)
+
+
+def _apply_outcome(store: EndpointStore, ep: Endpoint, outcome) -> None:
+    if outcome.list_error:
+        store.set_list_error(ep.id, outcome.list_error)
+    else:
+        store.set_list_error(ep.id, None)
+    if outcome.new_results is not None:
+        store.replace_model_results(ep.id, outcome.new_results)
+
+
+@app.post("/api/endpoints/{name_or_id}/retest", response_model=EndpointDetail)
+def retest_endpoint(name_or_id: str) -> EndpointDetail:
+    store = _store()
+    ep = store.get_endpoint(name_or_id)
+    if ep is None:
+        raise HTTPException(status_code=404, detail="endpoint not found")
+    runner = ProbeRunner(load_settings())
+    outcome = asyncio.run(runner.probe_endpoint(ep, allow_partial=True))
+    _apply_outcome(store, ep, outcome)
+    fresh = store.get_endpoint(ep.id)
+    assert fresh is not None
+    return _detail(store, fresh)
+
+
+@app.post("/api/retest-all")
+def retest_all() -> dict:
+    store = _store()
+    runner = ProbeRunner(load_settings())
+    eps = store.list_endpoints()
+
+    async def run_all() -> None:
+        for ep in eps:
+            outcome = await runner.probe_endpoint(ep, allow_partial=True)
+            _apply_outcome(store, ep, outcome)
+
+    asyncio.run(run_all())
+    return {"retested": len(eps)}

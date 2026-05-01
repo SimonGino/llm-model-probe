@@ -177,3 +177,73 @@ def test_create_with_probe_uses_runner(
     body = r.json()
     assert body["available"] == 1
     assert body["results"][0]["model_id"] == "fake-model"
+
+
+def test_delete_endpoint(client: TestClient, seed_store: EndpointStore) -> None:
+    ep = _seed_endpoint(seed_store, "to-delete")
+    r = client.delete(f"/api/endpoints/{ep.id}")
+    assert r.status_code == 204
+    assert client.get(f"/api/endpoints/{ep.id}").status_code == 404
+
+
+def test_delete_not_found(client: TestClient) -> None:
+    assert client.delete("/api/endpoints/nope").status_code == 404
+
+
+def test_retest_single(
+    client: TestClient,
+    seed_store: EndpointStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from llm_model_probe import api as api_mod
+    from llm_model_probe.models import ModelResult
+    from llm_model_probe.probe import ProbeOutcome
+
+    ep = _seed_endpoint(seed_store, "epsilon")
+
+    async def fake_probe(self, ep, *, allow_partial=False):
+        return ProbeOutcome(
+            list_error=None,
+            new_results=[
+                ModelResult(ep.id, "new-model", "discovered", "available", 9,
+                            last_tested_at=datetime.now())
+            ],
+            skipped=[],
+        )
+
+    monkeypatch.setattr(api_mod.ProbeRunner, "probe_endpoint", fake_probe)
+
+    r = client.post(f"/api/endpoints/{ep.id}/retest")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert any(res["model_id"] == "new-model" for res in body["results"])
+
+
+def test_retest_all(
+    client: TestClient,
+    seed_store: EndpointStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from llm_model_probe import api as api_mod
+    from llm_model_probe.models import ModelResult
+    from llm_model_probe.probe import ProbeOutcome
+
+    _seed_endpoint(seed_store, "ep-a")
+    _seed_endpoint(seed_store, "ep-b")
+
+    async def fake_probe(self, ep, *, allow_partial=False):
+        return ProbeOutcome(
+            list_error=None,
+            new_results=[
+                ModelResult(ep.id, "m", "discovered", "available", 1,
+                            last_tested_at=datetime.now())
+            ],
+            skipped=[],
+        )
+
+    monkeypatch.setattr(api_mod.ProbeRunner, "probe_endpoint", fake_probe)
+
+    r = client.post("/api/retest-all")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["retested"] == 2
