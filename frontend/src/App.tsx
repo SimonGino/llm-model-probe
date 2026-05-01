@@ -18,6 +18,7 @@ export default function App() {
   });
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const [autoTest, setAutoTest] = useState(false);
 
   return (
     <div className="min-h-screen p-6 max-w-6xl mx-auto">
@@ -42,7 +43,17 @@ export default function App() {
         <div className="text-destructive">Error: {String(list.error)}</div>
       )}
       {list.data && (
-        <EndpointTable endpoints={list.data} onSelect={setSelected} />
+        <EndpointTable
+          endpoints={list.data}
+          onSelect={(id) => {
+            setSelected(id);
+            setAutoTest(false);
+          }}
+          onRetest={(id) => {
+            setSelected(id);
+            setAutoTest(true);
+          }}
+        />
       )}
 
       <AddEndpointDialog
@@ -52,6 +63,8 @@ export default function App() {
       />
       <EndpointDetailDrawer
         idOrName={selected}
+        autoTest={autoTest}
+        onAutoTestConsumed={() => setAutoTest(false)}
         onClose={() => setSelected(null)}
       />
     </div>

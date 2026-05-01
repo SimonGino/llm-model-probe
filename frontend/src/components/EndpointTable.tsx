@@ -17,10 +17,13 @@ import { Badge } from "@/components/ui/badge";
 export default function EndpointTable({
   endpoints,
   onSelect,
+  onRetest,
 }: {
   endpoints: EndpointSummary[];
   onSelect: (idOrName: string) => void;
+  onRetest?: (idOrName: string) => void;
 }) {
+  void onRetest;
   const qc = useQueryClient();
   const [busyId, setBusyId] = useState<string | null>(null);
 

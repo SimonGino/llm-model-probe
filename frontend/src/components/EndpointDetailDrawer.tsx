@@ -1,19 +1,27 @@
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useProbeOrchestrator } from "@/lib/orchestrator";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { relative } from "@/lib/format";
+import type { ModelResultPublic } from "@/lib/types";
 
 export default function EndpointDetailDrawer({
   idOrName,
+  autoTest,
+  onAutoTestConsumed,
   onClose,
 }: {
   idOrName: string | null;
+  autoTest: boolean;
+  onAutoTestConsumed: () => void;
   onClose: () => void;
 }) {
   const open = idOrName !== null;
@@ -22,103 +30,181 @@ export default function EndpointDetailDrawer({
     queryFn: () => api.getEndpoint(idOrName!),
     enabled: open,
   });
+  const orch = useProbeOrchestrator();
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+
+  // Reset checkbox state when the drawer's endpoint changes; default-check
+  // models that are NOT in excluded_by_filter.
+  useEffect(() => {
+    if (!detail.data) return;
+    const excl = new Set(detail.data.excluded_by_filter);
+    setChecked(new Set(detail.data.models.filter((m) => !excl.has(m))));
+  }, [detail.data?.id]);
+
+  // Auto-trigger Test all if requested by parent (row ↻ click)
+  useEffect(() => {
+    if (autoTest && detail.data && detail.data.models.length > 0) {
+      orch.run(detail.data.id, detail.data.models);
+      onAutoTestConsumed();
+    }
+  }, [autoTest, detail.data?.id]);
+
+  const resultByModel = useMemo(() => {
+    const m = new Map<string, ModelResultPublic>();
+    if (detail.data) for (const r of detail.data.results) m.set(r.model_id, r);
+    return m;
+  }, [detail.data]);
+
+  function toggle(model: string) {
+    setChecked((prev) => {
+      const n = new Set(prev);
+      if (n.has(model)) n.delete(model);
+      else n.add(model);
+      return n;
+    });
+  }
+
+  const d = detail.data;
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>{detail.data?.name ?? "…"}</SheetTitle>
+          <SheetTitle>{d?.name ?? "…"}</SheetTitle>
         </SheetHeader>
 
         {detail.isLoading && (
           <div className="py-4 text-muted-foreground">Loading…</div>
         )}
-        {detail.data &&
-          (() => {
-            const d = detail.data;
-            const ok = d.results.filter((r) => r.status === "available");
-            const fail = d.results.filter((r) => r.status === "failed");
-            return (
-              <div className="space-y-4 py-4 text-sm">
-                <div className="space-y-1">
-                  <Row label="ID">{d.id}</Row>
-                  <Row label="SDK">{d.sdk}</Row>
-                  <Row label="URL">
-                    <code>{d.base_url}</code>
-                  </Row>
-                  <Row label="API key">
-                    <code>{d.api_key_masked}</code>
-                  </Row>
-                  <Row label="Mode">{d.mode}</Row>
-                  {d.note && <Row label="Note">{d.note}</Row>}
-                  <Row label="Last tested">{relative(d.last_tested_at)}</Row>
-                  {d.list_error && (
-                    <Row label="List error">
-                      <Badge variant="destructive">{d.list_error}</Badge>
-                    </Row>
-                  )}
+
+        {d && (
+          <div className="space-y-4 py-4 text-sm">
+            <div className="space-y-1">
+              <Row label="ID">{d.id}</Row>
+              <Row label="SDK">{d.sdk}</Row>
+              <Row label="URL">
+                <code>{d.base_url}</code>
+              </Row>
+              <Row label="API key">
+                <code>{d.api_key_masked}</code>
+              </Row>
+              <Row label="Mode">{d.mode}</Row>
+              {d.note && <Row label="Note">{d.note}</Row>}
+              <Row label="Last tested">{relative(d.last_tested_at)}</Row>
+              {d.list_error && (
+                <Row label="List error">
+                  <Badge variant="destructive">{d.list_error}</Badge>
+                </Row>
+              )}
+            </div>
+
+            {d.models.length === 0 ? (
+              <div className="text-muted-foreground italic">
+                {d.list_error
+                  ? "No models discovered. Try removing this endpoint and re-adding."
+                  : "No models. Specified mode with empty list."}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold">
+                    Models ({d.models.length})
+                  </h3>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={checked.size === 0}
+                      onClick={() => orch.run(d.id, [...checked])}
+                    >
+                      Test selected ({checked.size})
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => orch.run(d.id, d.models)}
+                    >
+                      Test all
+                    </Button>
+                  </div>
                 </div>
 
-                {ok.length > 0 && (
-                  <div>
-                    <h3 className="font-semibold mb-2 text-green-700">
-                      Available ({ok.length})
-                    </h3>
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="text-left text-muted-foreground">
-                          <th className="py-1">Model</th>
-                          <th className="py-1">Latency</th>
-                          <th className="py-1">Preview</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {ok.map((r) => (
-                          <tr key={r.model_id} className="border-t">
-                            <td className="py-1 font-mono">{r.model_id}</td>
-                            <td className="py-1">{r.latency_ms} ms</td>
-                            <td className="py-1 text-muted-foreground">
-                              {r.response_preview}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {fail.length > 0 && (
-                  <div>
-                    <h3 className="font-semibold mb-2 text-destructive">
-                      Failed ({fail.length})
-                    </h3>
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="text-left text-muted-foreground">
-                          <th className="py-1">Model</th>
-                          <th className="py-1">Error</th>
-                          <th className="py-1">Message</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {fail.map((r) => (
-                          <tr key={r.model_id} className="border-t">
-                            <td className="py-1 font-mono">{r.model_id}</td>
-                            <td className="py-1">{r.error_type}</td>
-                            <td className="py-1 text-muted-foreground truncate max-w-xs">
-                              {r.error_message}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                <div className="border rounded-md divide-y">
+                  {d.models.map((m) => (
+                    <ModelRow
+                      key={m}
+                      model={m}
+                      result={resultByModel.get(m) ?? null}
+                      pending={orch.isPending(d.id, m)}
+                      filterSkip={d.excluded_by_filter.includes(m)}
+                      checked={checked.has(m)}
+                      onToggle={() => toggle(m)}
+                    />
+                  ))}
+                </div>
               </div>
-            );
-          })()}
+            )}
+          </div>
+        )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+function ModelRow({
+  model,
+  result,
+  pending,
+  filterSkip,
+  checked,
+  onToggle,
+}: {
+  model: string;
+  result: ModelResultPublic | null;
+  pending: boolean;
+  filterSkip: boolean;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 px-3 py-2 hover:bg-muted/30 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onToggle}
+        className="h-4 w-4"
+      />
+      <span className="font-mono text-xs flex-1 truncate">{model}</span>
+      {filterSkip && !result && !pending && (
+        <Badge variant="secondary" className="text-xs">
+          filter-skip
+        </Badge>
+      )}
+      <ModelStatus result={result} pending={pending} />
+    </label>
+  );
+}
+
+function ModelStatus({
+  result,
+  pending,
+}: {
+  result: ModelResultPublic | null;
+  pending: boolean;
+}) {
+  if (pending)
+    return <span className="text-muted-foreground text-xs">… testing</span>;
+  if (!result)
+    return <span className="text-muted-foreground text-xs">untested</span>;
+  if (result.status === "available")
+    return (
+      <span className="text-green-600 text-xs">
+        ✓ {result.latency_ms} ms
+      </span>
+    );
+  return (
+    <span className="text-destructive text-xs truncate max-w-[200px]">
+      ✗ {result.error_type}
+    </span>
   );
 }
 
