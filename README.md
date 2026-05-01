@@ -130,10 +130,12 @@ cd frontend && npm run dev
 ```
 
 Features:
+- **Discover then test** — Add registers the endpoint and lists models in 1–3s; you then choose which models to probe. No more waiting on a 50-model auto-probe.
 - **Smart paste** — drop a JSON, dotenv block, or curl command into the Add dialog and it auto-fills the form.
-- One-click retest / delete per row.
-- "Retest all" button (blocks until done; no streaming progress in v1).
-- Detail drawer shows model-level status with masked API key.
+- **Live progress** — each model probes via its own short HTTP call; rows update incrementally (`… testing` → ✓/✗) while the rest of the UI stays responsive.
+- **One-click retest / delete** per row.
+- "Retest all" runs across every endpoint; concurrency is throttled to 5 in-flight probes globally.
+- Detail drawer shows model-level status with masked API key + checkbox to pick which models to test.
 
 UI is local-only (binds to `127.0.0.1`). API keys are stored in the same SQLite file as the CLI; both share `~/.llm-model-probe/probes.db`.
 
