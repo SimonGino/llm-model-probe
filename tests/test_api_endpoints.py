@@ -332,3 +332,151 @@ def test_endpoint_summary_includes_total_models(
     r = client.get("/api/endpoints")
     item = next(x for x in r.json() if x["name"] == "counted")
     assert item["total_models"] == 3
+
+
+def test_probe_model_writes_result(
+    client: TestClient,
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /probe-model probes one model and stores its row."""
+    from llm_model_probe.providers import OpenAIProvider, ProbeResult
+
+    async def fake_list_models(self):  # noqa: ARG001
+        return ["gpt-4"]
+
+    monkeypatch.setattr(OpenAIProvider, "list_models", fake_list_models)
+
+    create = client.post(
+        "/api/endpoints",
+        json={
+            "name": "probe-test",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-aaaa1111bbbb2222",
+            "no_probe": True,
+        },
+    )
+    assert create.status_code == 201
+    ep_id = create.json()["id"]
+
+    async def fake_probe(self, model, prompt, max_tokens):  # noqa: ARG001
+        return ProbeResult(
+            endpoint=self.name,
+            sdk=self.sdk,
+            model=model,
+            available=True,
+            latency_ms=42,
+            response_preview="hello",
+        )
+
+    monkeypatch.setattr(OpenAIProvider, "probe", fake_probe)
+
+    r = client.post(
+        f"/api/endpoints/{ep_id}/probe-model",
+        json={"model": "gpt-4"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["model_id"] == "gpt-4"
+    assert body["status"] == "available"
+    assert body["latency_ms"] == 42
+
+    detail = client.get(f"/api/endpoints/{ep_id}").json()
+    assert len(detail["results"]) == 1
+    assert detail["results"][0]["model_id"] == "gpt-4"
+    assert detail["available"] == 1
+
+
+def test_probe_model_unknown_model_400(
+    client: TestClient,
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Probing a model not in endpoint.models is rejected."""
+    from llm_model_probe.providers import OpenAIProvider
+
+    async def fake_list_models(self):  # noqa: ARG001
+        return ["gpt-4"]
+
+    monkeypatch.setattr(OpenAIProvider, "list_models", fake_list_models)
+
+    create = client.post(
+        "/api/endpoints",
+        json={
+            "name": "scope-test",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-aaaa1111bbbb2222",
+            "no_probe": True,
+        },
+    )
+    ep_id = create.json()["id"]
+
+    r = client.post(
+        f"/api/endpoints/{ep_id}/probe-model",
+        json={"model": "not-listed"},
+    )
+    assert r.status_code == 400
+
+
+def test_probe_model_endpoint_not_found_404(client: TestClient) -> None:
+    r = client.post(
+        "/api/endpoints/ep_zzzzzz/probe-model",
+        json={"model": "anything"},
+    )
+    assert r.status_code == 404
+
+
+def test_probe_model_replaces_prior_result(
+    client: TestClient,
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second probe for the same model overwrites the first row."""
+    from llm_model_probe.providers import OpenAIProvider, ProbeResult
+
+    async def fake_list_models(self):  # noqa: ARG001
+        return ["m1"]
+
+    monkeypatch.setattr(OpenAIProvider, "list_models", fake_list_models)
+
+    create = client.post(
+        "/api/endpoints",
+        json={
+            "name": "replay",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-aaaa1111bbbb2222",
+            "no_probe": True,
+        },
+    )
+    ep_id = create.json()["id"]
+
+    call_count = {"n": 0}
+
+    async def fake_probe(self, model, prompt, max_tokens):  # noqa: ARG001
+        call_count["n"] += 1
+        return ProbeResult(
+            endpoint=self.name,
+            sdk=self.sdk,
+            model=model,
+            available=call_count["n"] == 2,
+            latency_ms=10 * call_count["n"],
+            error_type=None if call_count["n"] == 2 else "X",
+            error_message=None if call_count["n"] == 2 else "fail",
+        )
+
+    monkeypatch.setattr(OpenAIProvider, "probe", fake_probe)
+
+    r1 = client.post(
+        f"/api/endpoints/{ep_id}/probe-model", json={"model": "m1"}
+    ).json()
+    assert r1["status"] == "failed"
+    r2 = client.post(
+        f"/api/endpoints/{ep_id}/probe-model", json={"model": "m1"}
+    ).json()
+    assert r2["status"] == "available"
+    detail = client.get(f"/api/endpoints/{ep_id}").json()
+    assert len(detail["results"]) == 1
+    assert detail["results"][0]["status"] == "available"

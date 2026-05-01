@@ -88,7 +88,7 @@ class PasteParseResponse(BaseModel):
 
 from fastapi import HTTPException
 
-from .models import Endpoint
+from .models import Endpoint, ModelResult
 from .report import mask_api_key
 from .store import EndpointStore
 
@@ -293,6 +293,93 @@ def retest_all() -> dict:
 
     asyncio.run(run_all())
     return {"retested": len(eps)}
+
+
+# ---------- per-model probe ----------
+
+class ProbeModelRequest(BaseModel):
+    model: str = Field(min_length=1)
+
+
+def _upsert_one_result(
+    store: EndpointStore, ep_id: str, result: ModelResult
+) -> None:
+    """Replace or insert a single model_results row for (ep_id, model_id)."""
+    import sqlite3
+
+    from .store import _iso
+
+    with sqlite3.connect(store._path) as c:
+        c.execute(
+            "DELETE FROM model_results WHERE endpoint_id = ? AND model_id = ?",
+            (ep_id, result.model_id),
+        )
+        c.execute(
+            """INSERT INTO model_results
+               (endpoint_id, model_id, source, status, latency_ms,
+                error_type, error_message, response_preview, last_tested_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (
+                result.endpoint_id, result.model_id, result.source, result.status,
+                result.latency_ms, result.error_type, result.error_message,
+                result.response_preview, _iso(result.last_tested_at),
+            ),
+        )
+        c.execute(
+            "UPDATE endpoints SET updated_at = ? WHERE id = ?",
+            (_iso(datetime.now()), ep_id),
+        )
+        c.commit()
+
+
+@app.post(
+    "/api/endpoints/{name_or_id}/probe-model",
+    response_model=ModelResultPublic,
+)
+def probe_model(name_or_id: str, req: ProbeModelRequest) -> ModelResultPublic:
+    store = _store()
+    ep = store.get_endpoint(name_or_id)
+    if ep is None:
+        raise HTTPException(status_code=404, detail="endpoint not found")
+    if req.model not in ep.models:
+        raise HTTPException(
+            status_code=400,
+            detail=f"model '{req.model}' not in endpoint.models",
+        )
+
+    from .providers import make_provider
+    settings = load_settings()
+    provider = make_provider(ep, settings.timeout_seconds)
+    try:
+        pr = asyncio.run(
+            provider.probe(req.model, settings.prompt, settings.max_tokens)
+        )
+    finally:
+        asyncio.run(provider.aclose())
+
+    source = "discovered" if ep.mode == "discover" else "specified"
+    new_row = ModelResult(
+        endpoint_id=ep.id,
+        model_id=pr.model,
+        source=source,  # type: ignore[arg-type]
+        status="available" if pr.available else "failed",
+        latency_ms=pr.latency_ms,
+        error_type=pr.error_type,
+        error_message=pr.error_message,
+        response_preview=pr.response_preview,
+        last_tested_at=datetime.now(),
+    )
+    _upsert_one_result(store, ep.id, new_row)
+    return ModelResultPublic(
+        model_id=new_row.model_id,
+        source=new_row.source,
+        status=new_row.status,
+        latency_ms=new_row.latency_ms,
+        error_type=new_row.error_type,
+        error_message=new_row.error_message,
+        response_preview=new_row.response_preview,
+        last_tested_at=new_row.last_tested_at,
+    )
 
 
 # ---------- parse-paste + settings ----------

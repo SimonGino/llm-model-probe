@@ -62,3 +62,44 @@ def test_no_api_key_leak_in_any_response(
     ]
     for p in payloads:
         assert raw_key not in p, "api_key plaintext leaked!"
+
+
+def test_no_api_key_leak_in_probe_model_response(
+    isolated_home, monkeypatch
+) -> None:
+    """Regression: api_key plaintext must never appear in probe-model output."""
+    from llm_model_probe.providers import OpenAIProvider, ProbeResult
+
+    async def fake_list_models(self):  # noqa: ARG001
+        return ["m"]
+
+    monkeypatch.setattr(OpenAIProvider, "list_models", fake_list_models)
+
+    async def fake_probe(self, model, prompt, max_tokens):  # noqa: ARG001
+        return ProbeResult(
+            endpoint=self.name,
+            sdk=self.sdk,
+            model=model,
+            available=True,
+            latency_ms=1,
+        )
+
+    monkeypatch.setattr(OpenAIProvider, "probe", fake_probe)
+
+    client = TestClient(app)
+    raw_key = "sk-LEAK-CHECK-PROBE-MODEL-9999"
+    create = client.post(
+        "/api/endpoints",
+        json={
+            "name": "leakcheck-pm",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": raw_key,
+            "no_probe": True,
+        },
+    )
+    ep_id = create.json()["id"]
+    pm = client.post(
+        f"/api/endpoints/{ep_id}/probe-model", json={"model": "m"}
+    ).text
+    assert raw_key not in pm
