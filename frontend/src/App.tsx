@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import EndpointTable from "@/components/EndpointTable";
+import AddEndpointDialog from "@/components/AddEndpointDialog";
 
 export default function App() {
   const qc = useQueryClient();
@@ -44,21 +45,7 @@ export default function App() {
         <EndpointTable endpoints={list.data} onSelect={setSelected} />
       )}
 
-      {/* AddEndpointDialog wired in next task */}
-      {showAdd && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-          onClick={() => setShowAdd(false)}
-        >
-          <div
-            className="bg-card p-4 rounded-md"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="mb-2">Add dialog placeholder — implemented in Task 10.</p>
-            <Button onClick={() => setShowAdd(false)}>Close</Button>
-          </div>
-        </div>
-      )}
+      <AddEndpointDialog open={showAdd} onClose={() => setShowAdd(false)} />
     </div>
   );
 }
