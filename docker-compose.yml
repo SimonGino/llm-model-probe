@@ -1,0 +1,10 @@
+services:
+  probe:
+    build: .
+    image: llm-model-probe:latest
+    container_name: llm-model-probe
+    ports:
+      - "8765:8765"
+    volumes:
+      - ${HOME}/.llm-model-probe:/data
+    restart: unless-stopped
