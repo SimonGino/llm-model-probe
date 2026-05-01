@@ -1,2 +1,7 @@
+"""LLM model availability probe."""
+from __future__ import annotations
+
+
 def main() -> None:
-    print("Hello from llm-model-probe!")
+    from .cli import app
+    app()
