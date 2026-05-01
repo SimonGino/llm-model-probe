@@ -40,6 +40,7 @@ class EndpointSummary(BaseModel):
     list_error: str | None
     available: int
     failed: int
+    total_models: int
     last_tested_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -59,6 +60,7 @@ class ModelResultPublic(BaseModel):
 class EndpointDetail(EndpointSummary):
     api_key_masked: str
     models: list[str]
+    excluded_by_filter: list[str]
     results: list[ModelResultPublic]
 
 
@@ -109,6 +111,7 @@ def _summary(store: EndpointStore, ep: Endpoint) -> EndpointSummary:
         list_error=ep.list_error,
         available=ok,
         failed=fail,
+        total_models=len(ep.models),
         last_tested_at=store.last_tested_at(ep.id),
         created_at=ep.created_at or datetime.now(),
         updated_at=ep.updated_at or datetime.now(),
@@ -130,10 +133,18 @@ def _detail(store: EndpointStore, ep: Endpoint) -> EndpointDetail:
         )
         for r in store.list_model_results(ep.id)
     ]
+    if ep.mode == "discover":
+        from .probe import filter_models
+        s = load_settings()
+        _kept, skipped = filter_models(ep.models, s.exclude_patterns)
+        excluded = skipped
+    else:
+        excluded = []
     return EndpointDetail(
         **summary.model_dump(),
         api_key_masked=mask_api_key(ep.api_key),
         models=ep.models,
+        excluded_by_filter=excluded,
         results=results,
     )
 
@@ -166,6 +177,22 @@ from .probe import ProbeRunner
 from .settings import load_settings
 
 
+def _persist_models(store: EndpointStore, ep_id: str, models: list[str]) -> None:
+    """Update endpoints.models JSON column without touching results.
+
+    Reaches into store._path because the store has no public method for this
+    single-column update; adding one is overkill.
+    """
+    import json as _j
+    import sqlite3
+    with sqlite3.connect(store._path) as c:
+        c.execute(
+            "UPDATE endpoints SET models_json = ?, updated_at = ? WHERE id = ?",
+            (_j.dumps(models), datetime.now().isoformat(timespec="seconds"), ep_id),
+        )
+        c.commit()
+
+
 @app.post(
     "/api/endpoints",
     response_model=EndpointDetail,
@@ -189,7 +216,24 @@ def create_endpoint(payload: EndpointCreate) -> EndpointDetail:
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-    if not payload.no_probe:
+    if payload.no_probe:
+        # UI path: discover (or accept specified) but do not probe.
+        if mode == "discover":
+            from .providers import make_provider
+            settings = load_settings()
+            provider = make_provider(ep, settings.timeout_seconds)
+            try:
+                discovered = asyncio.run(provider.list_models())
+                ep.models = list(discovered)
+                _persist_models(store, ep.id, discovered)
+                store.set_list_error(ep.id, None)
+            except Exception as e:
+                err = f"{type(e).__name__}: {str(e)[:200]}"
+                store.set_list_error(ep.id, err)
+            finally:
+                asyncio.run(provider.aclose())
+    else:
+        # CLI path: full discover + probe (unchanged).
         runner = ProbeRunner(load_settings())
         outcome = asyncio.run(runner.probe_endpoint(ep, allow_partial=False))
         if outcome.list_error:

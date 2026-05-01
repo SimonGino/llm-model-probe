@@ -247,3 +247,88 @@ def test_retest_all(
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["retested"] == 2
+
+
+def test_create_no_probe_discover_populates_models(
+    client: TestClient,
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """no_probe=true in discover mode should call list_models() and persist
+    the result onto endpoints.models — without probing."""
+    from llm_model_probe.providers import OpenAIProvider
+
+    async def fake_list_models(self):  # noqa: ARG001
+        return ["gpt-4", "gpt-3.5", "text-embedding-3"]
+
+    monkeypatch.setattr(OpenAIProvider, "list_models", fake_list_models)
+
+    r = client.post(
+        "/api/endpoints",
+        json={
+            "name": "discover-only",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-aaaa1111bbbb2222",
+            "no_probe": True,
+        },
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["mode"] == "discover"
+    assert body["models"] == ["gpt-4", "gpt-3.5", "text-embedding-3"]
+    assert body["results"] == []  # no probing
+    assert body["total_models"] == 3
+    # text-embedding-3 should land in excluded_by_filter
+    assert "text-embedding-3" in body["excluded_by_filter"]
+    assert "gpt-4" not in body["excluded_by_filter"]
+
+
+def test_create_no_probe_discover_list_error(
+    client: TestClient,
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from llm_model_probe.providers import OpenAIProvider
+
+    async def fail_list_models(self):  # noqa: ARG001
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(OpenAIProvider, "list_models", fail_list_models)
+
+    r = client.post(
+        "/api/endpoints",
+        json={
+            "name": "broken-discover",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-aaaa1111bbbb2222",
+            "no_probe": True,
+        },
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["models"] == []
+    assert body["list_error"] is not None
+    assert "kaboom" in body["list_error"]
+    assert body["total_models"] == 0
+
+
+def test_endpoint_summary_includes_total_models(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    """total_models should reflect endpoints.models length."""
+    ep2 = Endpoint(
+        id=new_endpoint_id(),
+        name="counted",
+        sdk="openai",
+        base_url="https://api.example.com/v1",
+        api_key="sk-1234567890aaaa",
+        mode="specified",
+        models=["a", "b", "c"],
+        note="",
+    )
+    seed_store.insert_endpoint(ep2)
+    r = client.get("/api/endpoints")
+    item = next(x for x in r.json() if x["name"] == "counted")
+    assert item["total_models"] == 3
