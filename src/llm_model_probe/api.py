@@ -156,3 +156,49 @@ def get_endpoint(name_or_id: str) -> EndpointDetail:
     if ep is None:
         raise HTTPException(status_code=404, detail="endpoint not found")
     return _detail(store, ep)
+
+
+import asyncio
+from fastapi import status
+
+from .models import new_endpoint_id
+from .probe import ProbeRunner
+from .settings import load_settings
+
+
+@app.post(
+    "/api/endpoints",
+    response_model=EndpointDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_endpoint(payload: EndpointCreate) -> EndpointDetail:
+    store = _store()
+    mode = "specified" if payload.models else "discover"
+    ep = Endpoint(
+        id=new_endpoint_id(),
+        name=payload.name,
+        sdk=payload.sdk,
+        base_url=str(payload.base_url).rstrip("/"),
+        api_key=payload.api_key,
+        mode=mode,  # type: ignore[arg-type]
+        models=list(payload.models),
+        note=payload.note,
+    )
+    try:
+        store.insert_endpoint(ep)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    if not payload.no_probe:
+        runner = ProbeRunner(load_settings())
+        outcome = asyncio.run(runner.probe_endpoint(ep, allow_partial=False))
+        if outcome.list_error:
+            store.set_list_error(ep.id, outcome.list_error)
+        else:
+            store.set_list_error(ep.id, None)
+            if outcome.new_results is not None:
+                store.replace_model_results(ep.id, outcome.new_results)
+
+    fresh = store.get_endpoint(ep.id)
+    assert fresh is not None
+    return _detail(store, fresh)

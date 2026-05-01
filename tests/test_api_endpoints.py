@@ -92,3 +92,88 @@ def test_get_endpoint_detail_by_id(
 def test_get_endpoint_detail_not_found(client: TestClient) -> None:
     r = client.get("/api/endpoints/nope")
     assert r.status_code == 404
+
+
+def test_create_no_probe(client: TestClient, isolated_home: Path) -> None:
+    payload = {
+        "name": "delta",
+        "sdk": "openai",
+        "base_url": "https://api.example.com/v1",
+        "api_key": "sk-1111222233334444",
+        "models": ["gpt-4o"],
+        "note": "test",
+        "no_probe": True,
+    }
+    r = client.post("/api/endpoints", json=payload)
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["name"] == "delta"
+    assert body["mode"] == "specified"
+    assert "api_key" not in body
+    assert body["api_key_masked"].endswith("4444")
+
+
+def test_create_duplicate_name_409(
+    client: TestClient, isolated_home: Path
+) -> None:
+    payload = {
+        "name": "dup",
+        "sdk": "openai",
+        "base_url": "https://api.example.com/v1",
+        "api_key": "sk-1234567890aaaa",
+        "no_probe": True,
+    }
+    assert client.post("/api/endpoints", json=payload).status_code == 201
+    r = client.post("/api/endpoints", json=payload)
+    assert r.status_code == 409
+
+
+def test_create_invalid_sdk_422(
+    client: TestClient, isolated_home: Path
+) -> None:
+    r = client.post(
+        "/api/endpoints",
+        json={
+            "name": "bad",
+            "sdk": "cohere",
+            "base_url": "https://x/v1",
+            "api_key": "sk-x",
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_create_with_probe_uses_runner(
+    client: TestClient, isolated_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Smoke: when no_probe=False the API calls ProbeRunner."""
+    from llm_model_probe import api as api_mod
+    from llm_model_probe.models import ModelResult
+    from llm_model_probe.probe import ProbeOutcome
+
+    async def fake_probe(self, ep, *, allow_partial=False):
+        return ProbeOutcome(
+            list_error=None,
+            new_results=[
+                ModelResult(ep.id, "fake-model", "specified", "available", 42,
+                            response_preview="hi", last_tested_at=datetime.now())
+            ],
+            skipped=[],
+        )
+
+    monkeypatch.setattr(api_mod.ProbeRunner, "probe_endpoint", fake_probe)
+
+    r = client.post(
+        "/api/endpoints",
+        json={
+            "name": "probed",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-aaaa11112222bbbb",
+            "models": ["fake-model"],
+        },
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["available"] == 1
+    assert body["results"][0]["model_id"] == "fake-model"
