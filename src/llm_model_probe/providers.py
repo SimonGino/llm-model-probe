@@ -8,7 +8,7 @@ from typing import Protocol
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
-from .config import Endpoint
+from .models import Endpoint
 
 
 @dataclass
