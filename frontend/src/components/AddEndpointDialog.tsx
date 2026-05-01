@@ -26,21 +26,25 @@ const empty: EndpointCreate = {
 export default function AddEndpointDialog({
   open,
   onClose,
+  onCreated,
 }: {
   open: boolean;
   onClose: () => void;
+  onCreated: (id: string) => void;
 }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<EndpointCreate>(empty);
   const [modelsText, setModelsText] = useState("");
 
   const create = useMutation({
-    mutationFn: (payload: EndpointCreate) => api.createEndpoint(payload),
-    onSuccess: () => {
+    mutationFn: (payload: EndpointCreate) =>
+      api.createEndpoint({ ...payload, no_probe: true }),
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["endpoints"] });
       setForm(empty);
       setModelsText("");
       onClose();
+      onCreated(data.id);
     },
   });
 
@@ -143,7 +147,7 @@ export default function AddEndpointDialog({
               !form.api_key
             }
           >
-            {create.isPending ? "Adding…" : "Add & Probe"}
+            {create.isPending ? "Adding…" : "Add"}
           </Button>
         </DialogFooter>
       </DialogContent>

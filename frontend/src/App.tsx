@@ -45,7 +45,11 @@ export default function App() {
         <EndpointTable endpoints={list.data} onSelect={setSelected} />
       )}
 
-      <AddEndpointDialog open={showAdd} onClose={() => setShowAdd(false)} />
+      <AddEndpointDialog
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        onCreated={(id) => setSelected(id)}
+      />
       <EndpointDetailDrawer
         idOrName={selected}
         onClose={() => setSelected(null)}
