@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import SmartPasteArea from "./SmartPasteArea";
 
 const empty: EndpointCreate = {
   name: "",
@@ -57,6 +58,20 @@ export default function AddEndpointDialog({
         <DialogHeader>
           <DialogTitle>Add endpoint</DialogTitle>
         </DialogHeader>
+
+        <SmartPasteArea
+          onApply={(s) => {
+            setForm((f) => ({
+              ...f,
+              name: s.name ?? f.name,
+              sdk: s.sdk ?? f.sdk,
+              base_url: s.base_url ?? f.base_url,
+              api_key: s.api_key ?? f.api_key,
+              note: s.note ?? f.note,
+            }));
+            if (s.models && s.models.length) setModelsText(s.models.join(", "));
+          }}
+        />
 
         <div className="space-y-3 py-2">
           <Field label="Name">
