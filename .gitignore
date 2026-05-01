@@ -12,3 +12,7 @@ wheels/
 # llm-model-probe local outputs
 reports/
 *.local.toml
+
+# frontend
+frontend/node_modules/
+frontend/dist/
