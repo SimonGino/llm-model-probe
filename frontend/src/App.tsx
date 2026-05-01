@@ -1,24 +1,33 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useProbeOrchestrator } from "@/lib/orchestrator";
 import { Button } from "@/components/ui/button";
 import EndpointTable from "@/components/EndpointTable";
 import AddEndpointDialog from "@/components/AddEndpointDialog";
 import EndpointDetailDrawer from "@/components/EndpointDetailDrawer";
 
 export default function App() {
-  const qc = useQueryClient();
   const list = useQuery({
     queryKey: ["endpoints"],
     queryFn: api.listEndpoints,
   });
-  const retestAll = useMutation({
-    mutationFn: api.retestAll,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["endpoints"] }),
-  });
+  const orch = useProbeOrchestrator();
+  const totalPending = orch.totalPending();
+
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [autoTest, setAutoTest] = useState(false);
+
+  async function retestEverything() {
+    if (!list.data) return;
+    for (const ep of list.data) {
+      if (ep.total_models === 0) continue;
+      const detail = await api.getEndpoint(ep.id);
+      // Don't await — run in background, sharing the global concurrency=5 limiter.
+      void orch.run(ep.id, detail.models);
+    }
+  }
 
   return (
     <div className="min-h-screen p-6 max-w-6xl mx-auto">
@@ -27,10 +36,12 @@ export default function App() {
         <div className="flex gap-2">
           <Button
             variant="outline"
-            disabled={retestAll.isPending}
-            onClick={() => retestAll.mutate()}
+            disabled={totalPending > 0}
+            onClick={retestEverything}
           >
-            {retestAll.isPending ? "Retesting…" : "↻ Retest all"}
+            {totalPending > 0
+              ? `Retesting (${totalPending} in flight)…`
+              : "↻ Retest all"}
           </Button>
           <Button onClick={() => setShowAdd(true)}>+ Add endpoint</Button>
         </div>
