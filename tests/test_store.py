@@ -107,6 +107,55 @@ def test_list_endpoints(store: EndpointStore) -> None:
     assert names == ["a", "b"]
 
 
+def test_init_schema_backfills_models_from_results(
+    isolated_home: Path,
+) -> None:
+    """Pre-redesign endpoints with empty models_json should get backfilled
+    from model_results on the next init_schema()."""
+    s = EndpointStore()
+    s.init_schema()
+    ep = _ep("legacy", mode="discover")
+    s.insert_endpoint(ep)
+    # Simulate pre-redesign state: model_results filled but models_json empty
+    s.replace_model_results(ep.id, [
+        ModelResult(ep.id, "gpt-4", "discovered", "available", 100,
+                    last_tested_at=datetime.now()),
+        ModelResult(ep.id, "gpt-3.5", "discovered", "failed", 50,
+                    last_tested_at=datetime.now()),
+    ])
+    # endpoints.models stays empty because _ep created with []
+    assert s.get_endpoint("legacy").models == []  # type: ignore[union-attr]
+
+    # Re-init triggers backfill
+    s2 = EndpointStore()
+    s2.init_schema()
+    refreshed = s2.get_endpoint("legacy")
+    assert refreshed is not None
+    assert sorted(refreshed.models) == ["gpt-3.5", "gpt-4"]
+
+
+def test_init_schema_backfill_is_idempotent(isolated_home: Path) -> None:
+    """Endpoints with non-empty models_json must not be touched by backfill."""
+    s = EndpointStore()
+    s.init_schema()
+    ep = Endpoint(
+        id=new_endpoint_id(),
+        name="new-style",
+        sdk="openai",
+        base_url="https://api.example.com/v1",
+        api_key="sk-test123",
+        mode="specified",
+        models=["m1", "m2"],
+        note="",
+    )
+    s.insert_endpoint(ep)
+    # Re-init: backfill must not clobber the explicitly-set list
+    EndpointStore().init_schema()
+    refreshed = s.get_endpoint("new-style")
+    assert refreshed is not None
+    assert refreshed.models == ["m1", "m2"]
+
+
 def test_last_tested_at(store: EndpointStore) -> None:
     ep = _ep("zeta")
     store.insert_endpoint(ep)

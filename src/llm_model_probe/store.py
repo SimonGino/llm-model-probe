@@ -72,10 +72,38 @@ class EndpointStore:
     def init_schema(self) -> None:
         with self._conn() as c:
             c.executescript(SCHEMA)
+            self._backfill_models_from_results(c)
         try:
             self._path.chmod(0o600)
         except FileNotFoundError:
             pass
+
+    @staticmethod
+    def _backfill_models_from_results(c: sqlite3.Connection) -> None:
+        """Pre-redesign discover-mode endpoints had empty models_json but
+        their probed model_ids live in model_results. Reconstruct the list
+        so the new UI (which renders from endpoints.models) can show them.
+
+        Idempotent: only touches rows where models_json == '[]' AND there
+        are matching model_results.
+        """
+        rows = c.execute(
+            """SELECT id FROM endpoints
+               WHERE models_json = '[]'
+                 AND id IN (SELECT DISTINCT endpoint_id FROM model_results)"""
+        ).fetchall()
+        for row in rows:
+            ep_id = row["id"]
+            model_rows = c.execute(
+                "SELECT DISTINCT model_id FROM model_results "
+                "WHERE endpoint_id = ? ORDER BY model_id",
+                (ep_id,),
+            ).fetchall()
+            models = [m["model_id"] for m in model_rows]
+            c.execute(
+                "UPDATE endpoints SET models_json = ? WHERE id = ?",
+                (json.dumps(models), ep_id),
+            )
 
     # --- endpoints --------------------------------------------------
 
