@@ -539,3 +539,37 @@ def test_summary_includes_tags(
     items = client.get("/api/endpoints").json()
     item = next(x for x in items if x["name"] == "in-summary")
     assert item["tags"] == ["a", "b"]
+
+
+def test_set_tags_replaces(
+    client: TestClient, isolated_home: Path
+) -> None:
+    create = client.post(
+        "/api/endpoints",
+        json={
+            "name": "rep",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-1234567890aaaa",
+            "models": ["m"],
+            "tags": ["old"],
+            "no_probe": True,
+        },
+    )
+    ep_id = create.json()["id"]
+
+    r = client.put(
+        f"/api/endpoints/{ep_id}/tags",
+        json={"tags": ["new1", "new2", "  new1  ", "", "new3"]},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["tags"] == ["new1", "new2", "new3"]
+
+
+def test_set_tags_unknown_endpoint_404(client: TestClient) -> None:
+    r = client.put(
+        "/api/endpoints/ep_zzzzzz/tags",
+        json={"tags": ["x"]},
+    )
+    assert r.status_code == 404

@@ -278,6 +278,26 @@ def delete_endpoint(name_or_id: str) -> None:
     store.delete_endpoint(ep.id)
 
 
+class TagsUpdate(BaseModel):
+    tags: list[str]
+
+
+@app.put(
+    "/api/endpoints/{name_or_id}/tags",
+    response_model=EndpointSummary,
+)
+def set_tags(name_or_id: str, body: TagsUpdate) -> EndpointSummary:
+    store = _store()
+    ep = store.get_endpoint(name_or_id)
+    if ep is None:
+        raise HTTPException(status_code=404, detail="endpoint not found")
+    normalized = _normalize_tags(body.tags)
+    store.set_tags(ep.id, normalized)
+    fresh = store.get_endpoint(ep.id)
+    assert fresh is not None
+    return _summary(store, fresh)
+
+
 def _apply_outcome(store: EndpointStore, ep: Endpoint, outcome) -> None:
     if outcome.list_error:
         store.set_list_error(ep.id, outcome.list_error)

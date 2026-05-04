@@ -50,6 +50,10 @@ def add(
         help="Comma-separated model IDs to probe; if omitted, auto-discover",
     ),
     note: str = typer.Option("", "--note", help="Free-form note"),
+    tags: Optional[str] = typer.Option(
+        None, "--tag",
+        help="Comma-separated tags, e.g. 'bob,trial'",
+    ),
     no_probe: bool = typer.Option(
         False, "--no-probe", help="Skip immediate probing"
     ),
@@ -60,6 +64,7 @@ def add(
             f"sdk must be 'openai' or 'anthropic', got '{sdk}'"
         )
     model_list = [m.strip() for m in (models or "").split(",") if m.strip()]
+    tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
     mode = "specified" if model_list else "discover"
     ep = Endpoint(
         id=new_endpoint_id(),
@@ -70,6 +75,7 @@ def add(
         mode=mode,  # type: ignore[arg-type]
         models=model_list,
         note=note,
+        tags=tag_list,
     )
     store = _store()
     try:
