@@ -5,8 +5,9 @@ import os
 from datetime import datetime
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl
 
 DEV_MODE = os.environ.get("LLM_MODEL_PROBE_DEV") == "1"
@@ -20,6 +21,41 @@ if DEV_MODE:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Bearer token gate for /api/* (except /api/health).
+
+    Reads LLM_MODEL_PROBE_TOKEN at request time so tests can monkeypatch it.
+    Empty/unset = auth disabled (legacy local mode).
+    """
+    expected = os.environ.get("LLM_MODEL_PROBE_TOKEN", "")
+    if not expected:
+        return await call_next(request)
+
+    path = request.url.path
+    if not path.startswith("/api/"):
+        return await call_next(request)
+    if path == "/api/health":
+        return await call_next(request)
+    if request.method == "OPTIONS":
+        # CORS preflight bypass
+        return await call_next(request)
+
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "missing bearer token"},
+        )
+    if auth_header[len("Bearer ") :] != expected:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "invalid token"},
+        )
+
+    return await call_next(request)
 
 
 # ---------- Pydantic schemas ----------
