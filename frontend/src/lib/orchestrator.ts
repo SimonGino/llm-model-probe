@@ -16,6 +16,7 @@ interface Inflight {
 
 class OrchestratorStore {
   private map = new Map<string, Inflight>();
+  private errors = new Map<string, string>();
   private inFlight = 0;
   private queue: Array<() => void> = [];
   private listeners = new Set<Listener>();
@@ -54,6 +55,10 @@ class OrchestratorStore {
     return n;
   }
 
+  errorFor(ep: string, model: string): string | null {
+    return this.errors.get(k(ep, model)) ?? null;
+  }
+
   run(
     ep: string,
     models: string[],
@@ -74,11 +79,18 @@ class OrchestratorStore {
       };
       for (const m of models) {
         this.map.set(k(ep, m), { status: "pending" });
+        this.errors.delete(k(ep, m));
         this.queue.push(() => {
           api
             .probeModel(ep, m)
-            .catch(() => {
-              /* swallow; UI re-fetches via cache invalidation */
+            .then(() => {
+              this.errors.delete(k(ep, m));
+            })
+            .catch((err) => {
+              const msg = String(err?.message ?? err).slice(0, 120);
+              this.errors.set(k(ep, m), msg);
+              // eslint-disable-next-line no-console
+              console.error(`[probe] ${ep}/${m}: ${msg}`);
             })
             .finally(() => {
               this.map.delete(k(ep, m));
@@ -122,6 +134,7 @@ export function useProbeOrchestrator() {
   return {
     run,
     isPending: (ep: string, model: string) => s.isPending(ep, model),
+    errorFor: (ep: string, model: string) => s.errorFor(ep, model),
     pendingForEndpoint: (ep: string) => s.pendingCountForEndpoint(ep),
     totalPending: () => s.totalPending(),
   };

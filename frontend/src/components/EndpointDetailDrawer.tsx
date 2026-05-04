@@ -135,6 +135,7 @@ export default function EndpointDetailDrawer({
                       model={m}
                       result={resultByModel.get(m) ?? null}
                       pending={orch.isPending(d.id, m)}
+                      transientError={orch.errorFor(d.id, m)}
                       filterSkip={d.excluded_by_filter.includes(m)}
                       checked={checked.has(m)}
                       onToggle={() => toggle(m)}
@@ -154,6 +155,7 @@ function ModelRow({
   model,
   result,
   pending,
+  transientError,
   filterSkip,
   checked,
   onToggle,
@@ -161,6 +163,7 @@ function ModelRow({
   model: string;
   result: ModelResultPublic | null;
   pending: boolean;
+  transientError: string | null;
   filterSkip: boolean;
   checked: boolean;
   onToggle: () => void;
@@ -174,12 +177,16 @@ function ModelRow({
         className="h-4 w-4"
       />
       <span className="font-mono text-xs flex-1 truncate">{model}</span>
-      {filterSkip && !result && !pending && (
+      {filterSkip && !result && !pending && !transientError && (
         <Badge variant="secondary" className="text-xs">
           filter-skip
         </Badge>
       )}
-      <ModelStatus result={result} pending={pending} />
+      <ModelStatus
+        result={result}
+        pending={pending}
+        transientError={transientError}
+      />
     </label>
   );
 }
@@ -187,25 +194,40 @@ function ModelRow({
 function ModelStatus({
   result,
   pending,
+  transientError,
 }: {
   result: ModelResultPublic | null;
   pending: boolean;
+  transientError: string | null;
 }) {
   if (pending)
     return <span className="text-muted-foreground text-xs">… testing</span>;
-  if (!result)
-    return <span className="text-muted-foreground text-xs">untested</span>;
-  if (result.status === "available")
+  if (result) {
+    if (result.status === "available")
+      return (
+        <span className="text-green-600 text-xs">
+          ✓ {result.latency_ms} ms
+        </span>
+      );
     return (
-      <span className="text-green-600 text-xs">
-        ✓ {result.latency_ms} ms
+      <span
+        className="text-destructive text-xs truncate max-w-[200px]"
+        title={result.error_message ?? undefined}
+      >
+        ✗ {result.error_type}
       </span>
     );
-  return (
-    <span className="text-destructive text-xs truncate max-w-[200px]">
-      ✗ {result.error_type}
-    </span>
-  );
+  }
+  if (transientError)
+    return (
+      <span
+        className="text-destructive text-xs truncate max-w-[200px]"
+        title={transientError}
+      >
+        ✗ request: {transientError}
+      </span>
+    );
+  return <span className="text-muted-foreground text-xs">untested</span>;
 }
 
 function Row({
