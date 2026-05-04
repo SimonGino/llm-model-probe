@@ -128,8 +128,18 @@ export default function EndpointDetailDrawer({
                   </div>
                 </div>
 
-                <div className="border rounded-md divide-y">
-                  {d.models.map((m) => (
+                {(() => {
+                  const available: string[] = [];
+                  const failed: string[] = [];
+                  const untested: string[] = [];
+                  for (const m of d.models) {
+                    const r = resultByModel.get(m);
+                    const te = orch.errorFor(d.id, m);
+                    if (r?.status === "available") available.push(m);
+                    else if (r || te) failed.push(m);
+                    else untested.push(m);
+                  }
+                  const renderRow = (m: string) => (
                     <ModelRow
                       key={m}
                       model={m}
@@ -140,14 +150,72 @@ export default function EndpointDetailDrawer({
                       checked={checked.has(m)}
                       onToggle={() => toggle(m)}
                     />
-                  ))}
-                </div>
+                  );
+                  return (
+                    <div className="space-y-3">
+                      {available.length > 0 && (
+                        <Section
+                          title="Available"
+                          count={available.length}
+                          tone="green"
+                        >
+                          {available.map(renderRow)}
+                        </Section>
+                      )}
+                      {failed.length > 0 && (
+                        <Section
+                          title="Failed"
+                          count={failed.length}
+                          tone="red"
+                        >
+                          {failed.map(renderRow)}
+                        </Section>
+                      )}
+                      {untested.length > 0 && (
+                        <Section
+                          title="Untested"
+                          count={untested.length}
+                          tone="muted"
+                        >
+                          {untested.map(renderRow)}
+                        </Section>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
         )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+function Section({
+  title,
+  count,
+  tone,
+  children,
+}: {
+  title: string;
+  count: number;
+  tone: "green" | "red" | "muted";
+  children: React.ReactNode;
+}) {
+  const titleColor =
+    tone === "green"
+      ? "text-green-700"
+      : tone === "red"
+      ? "text-destructive"
+      : "text-muted-foreground";
+  return (
+    <div>
+      <h4 className={`text-xs font-semibold uppercase tracking-wide mb-1 ${titleColor}`}>
+        {title} ({count})
+      </h4>
+      <div className="border rounded-md divide-y">{children}</div>
+    </div>
   );
 }
 
