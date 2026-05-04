@@ -18,6 +18,8 @@ export default function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [autoTest, setAutoTest] = useState(false);
+  const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
 
   async function retestEverything() {
     if (!list.data) return;
@@ -56,6 +58,10 @@ export default function App() {
       {list.data && (
         <EndpointTable
           endpoints={list.data}
+          search={search}
+          setSearch={setSearch}
+          tagFilter={tagFilter}
+          setTagFilter={setTagFilter}
           onSelect={(id) => {
             setSelected(id);
             setAutoTest(false);
