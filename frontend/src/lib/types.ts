@@ -13,6 +13,7 @@ export interface EndpointSummary {
   available: number;
   failed: number;
   total_models: number;
+  tags: string[];
   last_tested_at: string | null;
   created_at: string;
   updated_at: string;
@@ -43,6 +44,7 @@ export interface EndpointCreate {
   api_key: string;
   models?: string[];
   note?: string;
+  tags?: string[];
   no_probe?: boolean;
 }
 

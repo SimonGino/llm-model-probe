@@ -44,4 +44,10 @@ export const api = {
       `/api/endpoints/${encodeURIComponent(id)}/probe-model`,
       { model },
     ),
+  setTags: (idOrName: string, tags: string[]) =>
+    req<EndpointSummary>(
+      "PUT",
+      `/api/endpoints/${encodeURIComponent(idOrName)}/tags`,
+      { tags },
+    ),
 };

@@ -49,6 +49,7 @@ export default function EndpointTable({
           <TableHead>Mode</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Tested</TableHead>
+          <TableHead>Tags</TableHead>
           <TableHead>Note</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
@@ -98,7 +99,21 @@ export default function EndpointTable({
               <TableCell className="text-muted-foreground">
                 {relative(ep.last_tested_at)}
               </TableCell>
-              <TableCell className="text-muted-foreground max-w-[200px] truncate">
+              <TableCell>
+                <div className="flex flex-wrap gap-1">
+                  {ep.tags.slice(0, 3).map((t) => (
+                    <Badge key={t} variant="secondary" className="text-xs">
+                      {t}
+                    </Badge>
+                  ))}
+                  {ep.tags.length > 3 && (
+                    <Badge variant="outline" className="text-xs">
+                      +{ep.tags.length - 3}
+                    </Badge>
+                  )}
+                </div>
+              </TableCell>
+              <TableCell className="text-muted-foreground max-w-[160px] truncate">
                 {ep.note}
               </TableCell>
               <TableCell
