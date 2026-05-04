@@ -205,6 +205,17 @@ def health() -> dict:
     return {"ok": True}
 
 
+class AuthCheckResponse(BaseModel):
+    ok: bool
+
+
+@app.get("/api/auth/check", response_model=AuthCheckResponse)
+def auth_check() -> AuthCheckResponse:
+    # Middleware already validated token (or auth is disabled);
+    # if execution reaches here, the caller is authorized.
+    return AuthCheckResponse(ok=True)
+
+
 @app.get("/api/endpoints", response_model=list[EndpointSummary])
 def list_endpoints() -> list[EndpointSummary]:
     store = _store()

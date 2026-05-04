@@ -83,3 +83,36 @@ def test_non_api_path_no_auth_even_with_token_set(
     r = client.get("/")
     # No static mount in test env, so 404 is fine - just must NOT be 401
     assert r.status_code != 401
+
+
+def test_auth_check_with_valid_token(
+    monkeypatch: pytest.MonkeyPatch, isolated_home: Path
+) -> None:
+    monkeypatch.setenv("LLM_MODEL_PROBE_TOKEN", "s3cret")
+    client = TestClient(app)
+    r = client.get(
+        "/api/auth/check",
+        headers={"Authorization": "Bearer s3cret"},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+
+
+def test_auth_check_without_token(
+    monkeypatch: pytest.MonkeyPatch, isolated_home: Path
+) -> None:
+    monkeypatch.setenv("LLM_MODEL_PROBE_TOKEN", "s3cret")
+    client = TestClient(app)
+    r = client.get("/api/auth/check")
+    assert r.status_code == 401
+
+
+def test_auth_check_when_disabled(
+    monkeypatch: pytest.MonkeyPatch, isolated_home: Path
+) -> None:
+    """Auth disabled = always returns ok (frontend uses this to decide
+    whether to skip the login screen)."""
+    monkeypatch.delenv("LLM_MODEL_PROBE_TOKEN", raising=False)
+    client = TestClient(app)
+    r = client.get("/api/auth/check")
+    assert r.status_code == 200
