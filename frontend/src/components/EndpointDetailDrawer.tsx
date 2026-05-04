@@ -311,12 +311,14 @@ function ModelRow({
         type="checkbox"
         checked={checked}
         onChange={onToggle}
-        className="h-4 w-4"
+        className="h-4 w-4 flex-shrink-0"
       />
-      <span className="font-mono text-xs flex-1 truncate">{model}</span>
-      <CopyButton text={model} />
+      <div className="flex items-center gap-1 flex-1 min-w-0">
+        <span className="font-mono text-xs truncate">{model}</span>
+        <CopyButton text={model} />
+      </div>
       {filterSkip && !result && !pending && !transientError && (
-        <Badge variant="secondary" className="text-xs">
+        <Badge variant="secondary" className="text-xs flex-shrink-0">
           filter-skip
         </Badge>
       )}
@@ -349,7 +351,7 @@ function CopyButton({ text }: { text: string }) {
             /* ignore */
           });
       }}
-      className="text-muted-foreground hover:text-foreground p-1 rounded"
+      className="text-muted-foreground hover:text-foreground p-1 rounded flex-shrink-0"
     >
       {copied ? (
         <Check className="h-3.5 w-3.5 text-green-600" />
