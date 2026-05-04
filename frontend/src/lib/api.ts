@@ -5,13 +5,23 @@ import type {
   PasteSuggestion,
   ModelResultPublic,
 } from "./types";
+import { auth, UnauthorizedError } from "./auth";
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const token = auth.get();
+  const headers: Record<string, string> = body
+    ? { "Content-Type": "application/json" }
+    : {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const r = await fetch(path, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
+  if (r.status === 401) {
+    auth.clear();
+    throw new UnauthorizedError();
+  }
   if (!r.ok) {
     let detail = r.statusText;
     try {
@@ -26,6 +36,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 }
 
 export const api = {
+  authCheck: () => req<{ ok: boolean }>("GET", "/api/auth/check"),
   listEndpoints: () => req<EndpointSummary[]>("GET", "/api/endpoints"),
   getEndpoint: (idOrName: string) =>
     req<EndpointDetail>("GET", `/api/endpoints/${encodeURIComponent(idOrName)}`),
@@ -49,5 +60,10 @@ export const api = {
       "PUT",
       `/api/endpoints/${encodeURIComponent(idOrName)}/tags`,
       { tags },
+    ),
+  getApiKey: (idOrName: string) =>
+    req<{ api_key: string }>(
+      "GET",
+      `/api/endpoints/${encodeURIComponent(idOrName)}/api-key`,
     ),
 };
