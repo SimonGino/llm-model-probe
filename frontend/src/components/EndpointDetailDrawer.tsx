@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { relative } from "@/lib/format";
+import TagEditor from "./TagEditor";
 import type { ModelResultPublic } from "@/lib/types";
 
 export default function EndpointDetailDrawer({
@@ -89,6 +90,9 @@ export default function EndpointDetailDrawer({
                 <code>{d.api_key_masked}</code>
               </Row>
               <Row label="Mode">{d.mode}</Row>
+              <Row label="Tags">
+                <TagEditor endpointId={d.id} tags={d.tags} />
+              </Row>
               {d.note && <Row label="Note">{d.note}</Row>}
               <Row label="Last tested">{relative(d.last_tested_at)}</Row>
               {d.list_error && (
