@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Check, Copy } from "lucide-react";
 import { relative } from "@/lib/format";
 import TagEditor from "./TagEditor";
+import ApiKeyReveal from "./ApiKeyReveal";
 import type { ModelResultPublic } from "@/lib/types";
 
 export default function EndpointDetailDrawer({
@@ -90,7 +91,7 @@ export default function EndpointDetailDrawer({
                 <code>{d.base_url}</code>
               </Row>
               <Row label="API key">
-                <code>{d.api_key_masked}</code>
+                <ApiKeyReveal endpointId={d.id} masked={d.api_key_masked} />
               </Row>
               <Row label="Mode">{d.mode}</Row>
               <Row label="Tags">
