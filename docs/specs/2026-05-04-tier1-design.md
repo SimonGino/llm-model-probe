@@ -1,48 +1,38 @@
-# Tier 1 — Tags + Search + Model Sort
+# Tier 1 - 标签 + 搜索 + 模型排序
 
-**Date**: 2026-05-04
-**Status**: approved (verbal)
-**Builds on**: `docs/specs/2026-05-01-design.md`, `2026-05-01-ui-design.md`, `2026-05-02-probe-redesign-design.md`
+**日期**: 2026-05-04
+**状态**: 已口头确认
+**基于**: `docs/specs/2026-05-01-design.md`、`2026-05-01-ui-design.md`、`2026-05-02-probe-redesign-design.md`
 
-## Goal
+## 目标
 
-Make the tool comfortable to use beyond ~10 endpoints by adding the three
-organization affordances that hurt first as the registry grows:
+让这工具能舒服地管理 10+ 个 endpoint，补齐三个会最先暴露出来的痛点：
 
-1. **Tags** on endpoints (free-form, multi-valued) — for grouping by source
-   ("供应商A", "trial", "team-foo").
-2. **Endpoint search** (table-level filter) — substring match across name,
-   note, and tags.
-3. **Drawer model search + sort** — find a model among 200+, with results
-   sections sorted meaningfully (Available by latency, Failed by error
-   type, Untested alphabetical).
+1. **标签 (tags)** —— endpoint 上挂多个自由文本标签，按"来源 / 用途"分类（如 `供应商A`、`trial`、`team-foo`）
+2. **endpoint 搜索** —— 表格上方的过滤框，按 name / note / tag 任意子串匹配
+3. **drawer 内模型搜索 + 段内排序** —— 200 个模型里搜 `gpt-4` 直接定位；Available 段按延迟从快到慢，Failed 段按错误类型聚类，Untested 段字母序
 
-This is the smallest set that makes the leap from "demo / personal tool"
-to "I can manage 30+ endpoints without losing my mind". History, encrypted
-keys, auth, scheduling, etc. are deferred.
+这是从"个人 demo"跨到"30+ endpoint 也不会乱"的最小集合。历史、加密、认证、定时探活等都**不在这次范围**，留给后续 Tier 2/3。
 
-## Non-Goals
+## 不做的事
 
-- Editing tags via CLI (UI only). `--tag` on `probe add` is the only CLI
-  surface for tags in this round.
-- Tag autocomplete from existing tags (drop-in nice-to-have, but the
-  free-text input + the table filter dropdown together cover the workflow).
-- Tag colors / icons. Plain text chips.
-- Per-model probe history. (Tier 2.)
-- Cross-endpoint model matrix. (Tier 2.)
-- Encrypted at rest, auth, scheduled probing, capability probing. (Tier 3.)
+- CLI 编辑标签（只支持 `probe add --tag`，后续编辑走 UI）
+- 标签自动补全（输入框 + 表格的多选下拉一起够用了）
+- 标签颜色 / 图标
+- 模型探活历史（Tier 2）
+- 跨 endpoint 模型矩阵（Tier 2）
+- 加密、认证、定时探活、能力探查（Tier 3）
 
-## Data Model
+## 数据模型
 
-Single additive change: a `tags_json` column on `endpoints`.
+只加一列。`endpoints` 表加 `tags_json`：
 
 ```sql
 ALTER TABLE endpoints
     ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';
 ```
 
-SQLite has no `IF NOT EXISTS` for column adds, so `EndpointStore.init_schema`
-runs an idempotent migration:
+SQLite 没有 `IF NOT EXISTS` 加列语法，所以 `EndpointStore.init_schema` 里跑一段幂等迁移：
 
 ```python
 def _migrate_tags(self, c: sqlite3.Connection) -> None:
@@ -54,37 +44,33 @@ def _migrate_tags(self, c: sqlite3.Connection) -> None:
         )
 ```
 
-Called once after `executescript(SCHEMA)` and before the existing models
-backfill. Existing rows get `[]` automatically.
+在 `executescript(SCHEMA)` 之后、原有的 models 回填之前调用一次。已有数据自动得到 `[]`。
 
-The `Endpoint` dataclass gains `tags: list[str] = field(default_factory=list)`,
-written/read via `json.dumps` / `json.loads` exactly like `models`.
+`Endpoint` dataclass 加 `tags: list[str] = field(default_factory=list)`，存取方式跟 `models` 完全一样（JSON 序列化）。
 
-## API Changes
+## API 改动
 
-### `EndpointCreate` (input)
+### `EndpointCreate`（请求体）
 
 ```python
 class EndpointCreate(BaseModel):
-    # ... existing ...
+    # ... 已有字段不变 ...
     tags: list[str] = []
 ```
 
-Empty list is fine. The `create_endpoint` route persists `tags` to the new
-column.
+允许空数组。`create_endpoint` 路由把 tags 写入新列。
 
-### `EndpointSummary` and `EndpointDetail` (output)
+### `EndpointSummary` 和 `EndpointDetail`（响应体）
 
 ```python
 class EndpointSummary(BaseModel):
-    # ... existing ...
+    # ... 已有字段不变 ...
     tags: list[str]
 ```
 
-Both summary and detail responses include `tags` so the table can render
-them without an extra detail fetch.
+list 接口和 detail 接口都返回 tags，前端表格不用额外请求 detail。
 
-### New: `PUT /api/endpoints/{name_or_id}/tags`
+### 新增：`PUT /api/endpoints/{name_or_id}/tags`
 
 ```python
 class TagsUpdate(BaseModel):
@@ -96,77 +82,64 @@ def set_tags(name_or_id: str, body: TagsUpdate) -> EndpointSummary:
     ...
 ```
 
-Replaces the full tag list. Trims whitespace per element; drops empty
-strings; deduplicates while preserving first-seen order. Returns the
-updated `EndpointSummary` so callers can refresh their cache.
+整体替换标签列表。每个元素 trim 空格、丢掉空字符串、保留首次出现顺序去重。返回更新后的 `EndpointSummary`，方便前端刷新缓存。
 
-404 if endpoint not found.
+endpoint 找不到 → 404。
 
-## CLI Changes
+## CLI 改动
 
-Single addition on `probe add`:
+只在 `probe add` 加一个选项：
 
 ```python
 tags: Optional[str] = typer.Option(
     None, "--tag",
-    help="Comma-separated tags, e.g. 'bob,trial'",
+    help="逗号分隔的标签，如 'bob,trial'",
 ),
 ```
 
-Parsed identically to `--models`: split on comma, trim, drop empties.
-Persisted via the same path as the API.
+跟 `--models` 一样的解析方式：按逗号切、trim、丢空。CLI 不做编辑功能。
 
-No new CLI subcommand for tag editing; UI handles that flow.
+## 前端改动
 
-## Frontend Changes
+### `EndpointTable` —— 搜索 + 标签筛选 + 标签列
 
-### `EndpointTable` — search + tag filter + tag column
-
-Layout above the table (new):
+表格上方加一行（新）：
 
 ```
 ┌──────────────────────────────────────────────────┐
-│ [Search name/note/tag...]  [Tag ▾]               │
+│ [搜 name/note/tag...]  [标签 ▾]                  │
 └──────────────────────────────────────────────────┘
 ID  Name  SDK  Mode  Status  Tested  Tags  Note  Actions
 ```
 
-- **Search input** (free text): case-insensitive substring match across
-  `name`, `note`, and any tag.
-- **Tag dropdown**: multi-select of all distinct tags across the current
-  endpoints list. AND-combined with the search input. Implementation:
-  shadcn `<DropdownMenu>` with checkbox items. Empty selection = no tag
-  filter.
-- **Tags column**: small badge per tag (shadcn `<Badge variant="secondary">`).
-  More than 3 tags → show first 3 + `+N`.
+- **搜索框**（自由文本）：大小写不敏感，匹配 `name` / `note` / 任意 tag 的子串
+- **标签下拉**（多选）：列出所有 endpoint 当前用到的 tag，AND 组合搜索框。用 shadcn `<DropdownMenu>` + checkbox。空选 = 不过滤
+- **Tags 列**：每个 tag 一个小 badge（`<Badge variant="secondary">`）。超过 3 个 → 显示前 3 个 + `+N`
 
-The note column gets narrower to make room (`max-w-[160px]` from 200).
+Note 列变窄给 Tags 让位（`max-w-[160px]`，原来 200）。
 
-State: search string + selected tag set live in `App.tsx` (lifted out so
-they survive endpoint refetches), passed as props.
+state：搜索字符串 + 选中 tag 集合放在 `App.tsx`（提到上层免得重新查询时丢失），通过 props 传下来。
 
-### `EndpointDetailDrawer` — tag editor
+### `EndpointDetailDrawer` —— 标签编辑器
 
-Add a row to the detail card area:
+详情卡片区加一行：
 
 ```
-Tags    [trial ✕] [bob ✕]   [+ add tag input ↵]
+Tags    [trial ✕] [bob ✕]   [+ 添加 tag 输入框 ↵]
 ```
 
-- Each tag: shadcn `<Badge>` with a small ✕ button.
-- Input: small text field; on Enter, append to tag list and PUT to server.
-- On ✕ click, remove tag and PUT.
+- 每个 tag：`<Badge>` + 小 ✕ 按钮
+- 输入框：小型 text field，回车追加到 tag 列表 → PUT 到服务器
+- 点 ✕ 移除 → PUT
 
-State: `useMutation` wrapping `api.setTags(idOrName, tags)`. On success,
-invalidate `["endpoint", id]` and `["endpoints"]` so the table reflects
-changes.
+state：`useMutation` 包 `api.setTags(idOrName, tags)`。成功后 invalidate `["endpoint", id]` 和 `["endpoints"]`，表格自动反映变化。
 
-### `EndpointDetailDrawer` — model search + section sort
+### `EndpointDetailDrawer` —— 模型搜索 + 段内排序
 
-Add a search input above the three sections:
+三个段上方加一个搜索框：
 
 ```
-Models (239)               [Search models...]
+Models (239)               [搜模型...]
                                                   [Test selected (12)] [Test all]
 
 AVAILABLE (3) ...
@@ -174,25 +147,21 @@ FAILED (12) ...
 UNTESTED (224) ...
 ```
 
-Frontend filters all three sections by case-insensitive substring against
-`model_id`. Empty input = show all.
+前端按 `model_id` 子串过滤三个段（大小写不敏感）。空 = 全部显示。
 
-**Section ordering** (within section):
+**段内排序**：
 
-| Section | Sort key |
+| 段 | 排序键 |
 |---|---|
-| Available | `latency_ms` ASC (fastest first), nulls last |
-| Failed | `error_type` ASC, then `model_id` ASC (group same errors) |
-| Untested | `model_id` ASC (alphabetical) |
+| Available | `latency_ms` 升序（最快在前），null 在最后 |
+| Failed | `error_type` 升序，再按 `model_id` 升序（同类错误聚在一起） |
+| Untested | `model_id` 升序（字母序） |
 
-The "Test selected" / "Test all" buttons act on the **filtered** view if
-a search is active (so you can `Test all` for "all gpt-* models"), else on
-the full list. Add a small hint label when filter is active:
-"`Test all (filtered: 5)`".
+**搜索激活时**，"Test selected" / "Test all" 按钮作用于**过滤后**的视图（这样可以"测试所有 gpt-* 模型"）。按钮 label 加提示：`Test all (filtered: 5)`。
 
-### Frontend `api.ts`
+### 前端 `api.ts`
 
-Add:
+加：
 
 ```ts
 setTags: (idOrName: string, tags: string[]) =>
@@ -201,55 +170,48 @@ setTags: (idOrName: string, tags: string[]) =>
     { tags }),
 ```
 
-### Frontend `types.ts`
+### 前端 `types.ts`
 
-Add `tags: string[]` to both `EndpointSummary` and `EndpointDetail`. Add
-`tags?: string[]` to `EndpointCreate`.
+`EndpointSummary` 和 `EndpointDetail` 都加 `tags: string[]`。`EndpointCreate` 加 `tags?: string[]`。
 
-## Backend Tests
+## 后端测试
 
-In `tests/test_api_endpoints.py`:
+`tests/test_api_endpoints.py` 加：
 
-- `test_create_with_tags_persists` — POST with `tags: ["a","b"]`,
-  GET → returns same.
-- `test_create_default_tags_empty` — POST without tags → `tags == []`.
-- `test_set_tags_replaces` — PUT replaces full list; deduplicates;
-  trims whitespace.
-- `test_set_tags_unknown_endpoint_404`.
-- `test_summary_includes_tags` — list view also has tags.
+- `test_create_with_tags_persists` —— POST 带 `tags: ["a","b"]`，GET 返回相同
+- `test_create_default_tags_empty` —— POST 不带 tags → `tags == []`
+- `test_set_tags_replaces` —— PUT 整体替换；去重；trim
+- `test_set_tags_unknown_endpoint_404`
+- `test_summary_includes_tags` —— list 接口也返回 tags
 
-In `tests/test_store.py`:
+`tests/test_store.py` 加：
 
-- `test_init_schema_adds_tags_column_idempotently` — open old-style DB
-  (manually create a table without `tags_json`), call `init_schema`, verify
-  the column exists and existing rows now have `[]`.
+- `test_init_schema_adds_tags_column_idempotently` —— 手动构造一个没有 `tags_json` 列的旧表，调用 `init_schema`，确认新列存在 + 旧行得到 `[]`
 
-## Frontend Tests
+## 前端测试
 
-Per existing convention, no unit tests v1. Manual smoke checklist additions:
+按现有惯例，v1 不写单元测试。手动 smoke 清单：
 
-1. Add an endpoint with `--tag` (CLI) or via UI dialog → tag chip shows in
-   table.
-2. Add a tag in the drawer → chip appears in table without manual refresh.
-3. Remove a tag in the drawer → chip disappears.
-4. Type in the search box → table filters live.
-5. Pick a tag from the dropdown → table further narrows.
-6. Search "gpt" in drawer → all three sections filter; counts update.
-7. Available section is sorted fastest-first.
-8. With drawer search active, "Test all" shows `(filtered: N)`.
+1. CLI `probe add --tag x,y` 加 endpoint → 表格 tag chip 显示
+2. drawer 加一个 tag → 表格立即反映（不用刷新）
+3. drawer 删一个 tag → 表格立即反映
+4. 搜索框输入 → 表格实时过滤
+5. 标签下拉选一个 → 表格在搜索基础上再缩
+6. drawer 搜 `gpt` → 三段同时过滤，计数更新
+7. Available 段确实是最快的在最前
+8. drawer 搜索激活时 "Test all" 显示 `(filtered: N)`
 
-## Migration / Backwards Compatibility
+## 兼容性
 
-- Existing DBs gain `tags_json` column with `'[]'` default. No data lost.
-- Existing API consumers that don't send `tags` get default `[]`.
-- The CLI's `--tag` flag is optional; unaffected if you never use it.
-- The new `PUT /tags` endpoint is purely additive.
+- 老 DB 自动得到 `tags_json` 列，默认 `'[]'`，**不丢数据**
+- 老的 API 调用方不发 `tags` 字段 → 默认 `[]`
+- CLI `--tag` 是可选的，不传完全不影响
+- 新的 `PUT /tags` 接口纯增量
 
-## Out of Scope (explicit)
+## 明确不做
 
-- Tag normalization (lowercasing, slugging). Tags are case-sensitive,
-  exact strings.
-- Tag rename / merge across endpoints (tier 2).
-- Saving search state in URL hash (tier 2 if it matters).
-- Bulk tag operations (tag N selected endpoints at once).
-- Sortable column headers on the table (separate concern).
+- 标签规范化（小写化 / slug）。标签**区分大小写**，原样存储
+- 跨 endpoint 标签重命名 / 合并（Tier 2）
+- 搜索状态保存到 URL hash（如有需要 Tier 2）
+- 批量打标签（一次给 N 个 endpoint 加同一个 tag）
+- 表头点击排序（独立功能）
