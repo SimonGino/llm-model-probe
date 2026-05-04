@@ -137,14 +137,57 @@ Features:
 - "Retest all" runs across every endpoint; concurrency is throttled to 5 in-flight probes globally.
 - Detail drawer shows model-level status with masked API key + checkbox to pick which models to test.
 
-UI is local-only (binds to `127.0.0.1`). API keys are stored in the same SQLite file as the CLI; both share `~/.llm-model-probe/probes.db`.
+UI binds to `127.0.0.1` by default. API keys are stored in the same SQLite file as the CLI; both share `~/.llm-model-probe/probes.db`.
 
 ## Docker
 
 ```bash
 docker compose up -d --build
-# UI on http://localhost:8765
+# UI on http://localhost:8765 (反代再决定要不要给公网)
 # DB volume mounted from host ~/.llm-model-probe
+```
+
+## 公网部署 (single user, token auth)
+
+如果你想把这个工具暴露到公网（VPS 或家里 mac mini + 反代），加一道 token 墙就够单用户场景：
+
+1. 生成一个长 token：
+   ```bash
+   openssl rand -hex 32
+   ```
+2. 写到 `.env` 或 host environment：
+   ```bash
+   echo "LLM_MODEL_PROBE_TOKEN=<上面那串>" >> .env
+   ```
+3. `docker compose up -d --build`
+4. 反代加 HTTPS（Caddy 例）：
+   ```
+   probe.example.com {
+       reverse_proxy localhost:8765
+   }
+   ```
+   Caddy 自动签证书。
+
+5. 浏览器开 `https://probe.example.com` → 弹登录页 → 输入 token → 进入 UI
+
+**安全要点**：
+
+- **绝对不要**直接暴露 `8765` 端口到公网（HTTP 明文 → token 被截听）
+- 反代必须开 HTTPS
+- `LLM_MODEL_PROBE_TOKEN` 没设 + 绑非 localhost = server 拒启（防呆）
+- `/api/health` 永远不需要 token（给反代健康检查用）
+- CLI（`probe add/list/...`）直接读 SQLite，不走 HTTP，不受 token 影响
+
+直接在裸机上跑、绑 0.0.0.0 + 配 token：
+
+```bash
+export LLM_MODEL_PROBE_TOKEN=$(openssl rand -hex 32)
+probe ui --listen 0.0.0.0
+```
+
+只本机用，跳过 token 和反代：
+```bash
+probe ui    # 默认 bind 127.0.0.1, 无认证
 ```
 
 ## Project Layout

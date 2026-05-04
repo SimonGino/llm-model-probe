@@ -3,8 +3,14 @@ services:
     build: .
     image: llm-model-probe:latest
     container_name: llm-model-probe
+    environment:
+      # 公网部署务必设置一个长 token, 例如:
+      #   openssl rand -hex 32
+      # 没设的话只能从容器内本机访问 (绑 0.0.0.0 + 没 token = server 拒启).
+      - LLM_MODEL_PROBE_TOKEN=${LLM_MODEL_PROBE_TOKEN:-}
     ports:
-      - "8765:8765"
+      # 默认只 bind 宿主 localhost; 反代来负责对外
+      - "127.0.0.1:8765:8765"
     volumes:
       - ${HOME}/.llm-model-probe:/data
     restart: unless-stopped
