@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { relative } from "@/lib/format";
 import TagEditor from "./TagEditor";
 import type { ModelResultPublic } from "@/lib/types";
@@ -33,6 +34,7 @@ export default function EndpointDetailDrawer({
   });
   const orch = useProbeOrchestrator();
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [modelSearch, setModelSearch] = useState("");
 
   // Reset checkbox state when the drawer's endpoint changes; default-check
   // models that are NOT in excluded_by_filter.
@@ -110,39 +112,96 @@ export default function EndpointDetailDrawer({
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold">
-                    Models ({d.models.length})
-                  </h3>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold">
+                      Models ({d.models.length})
+                    </h3>
+                    <Input
+                      placeholder="Search models..."
+                      value={modelSearch}
+                      onChange={(e) => setModelSearch(e.target.value)}
+                      className="h-8 text-xs w-44"
+                    />
+                  </div>
                   <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={checked.size === 0}
-                      onClick={() => orch.run(d.id, [...checked])}
-                    >
-                      Test selected ({checked.size})
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => orch.run(d.id, d.models)}
-                    >
-                      Test all
-                    </Button>
+                    {(() => {
+                      const q = modelSearch.trim().toLowerCase();
+                      const filteredAll = q
+                        ? d.models.filter((m) => m.toLowerCase().includes(q))
+                        : d.models;
+                      const filteredChecked = q
+                        ? [...checked].filter((m) =>
+                            m.toLowerCase().includes(q),
+                          )
+                        : [...checked];
+                      const filtered = !!q;
+                      return (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={filteredChecked.length === 0}
+                            onClick={() => orch.run(d.id, filteredChecked)}
+                          >
+                            Test selected ({filteredChecked.length}
+                            {filtered ? ", filtered" : ""})
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={filteredAll.length === 0}
+                            onClick={() => orch.run(d.id, filteredAll)}
+                          >
+                            Test all
+                            {filtered ? ` (filtered: ${filteredAll.length})` : ""}
+                          </Button>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
 
                 {(() => {
+                  const q = modelSearch.trim().toLowerCase();
+                  const visible = q
+                    ? d.models.filter((m) => m.toLowerCase().includes(q))
+                    : d.models;
+
                   const available: string[] = [];
                   const failed: string[] = [];
                   const untested: string[] = [];
-                  for (const m of d.models) {
+                  for (const m of visible) {
                     const r = resultByModel.get(m);
                     const te = orch.errorFor(d.id, m);
                     if (r?.status === "available") available.push(m);
                     else if (r || te) failed.push(m);
                     else untested.push(m);
                   }
+
+                  available.sort((a, b) => {
+                    const la =
+                      resultByModel.get(a)?.latency_ms ??
+                      Number.MAX_SAFE_INTEGER;
+                    const lb =
+                      resultByModel.get(b)?.latency_ms ??
+                      Number.MAX_SAFE_INTEGER;
+                    if (la !== lb) return la - lb;
+                    return a.localeCompare(b);
+                  });
+                  failed.sort((a, b) => {
+                    const ea =
+                      resultByModel.get(a)?.error_type ??
+                      orch.errorFor(d.id, a) ??
+                      "";
+                    const eb =
+                      resultByModel.get(b)?.error_type ??
+                      orch.errorFor(d.id, b) ??
+                      "";
+                    if (ea !== eb) return ea.localeCompare(eb);
+                    return a.localeCompare(b);
+                  });
+                  untested.sort((a, b) => a.localeCompare(b));
+
                   const renderRow = (m: string) => (
                     <ModelRow
                       key={m}
@@ -183,6 +242,11 @@ export default function EndpointDetailDrawer({
                         >
                           {untested.map(renderRow)}
                         </Section>
+                      )}
+                      {visible.length === 0 && (
+                        <div className="text-xs text-muted-foreground italic">
+                          没有匹配 "{modelSearch}" 的模型
+                        </div>
                       )}
                     </div>
                   );
