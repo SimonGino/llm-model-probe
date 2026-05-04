@@ -221,17 +221,22 @@ def create_endpoint(payload: EndpointCreate) -> EndpointDetail:
         if mode == "discover":
             from .providers import make_provider
             settings = load_settings()
-            provider = make_provider(ep, settings.timeout_seconds)
+
+            async def _discover() -> list[str]:
+                provider = make_provider(ep, settings.timeout_seconds)
+                try:
+                    return await provider.list_models()
+                finally:
+                    await provider.aclose()
+
             try:
-                discovered = asyncio.run(provider.list_models())
+                discovered = asyncio.run(_discover())
                 ep.models = list(discovered)
                 _persist_models(store, ep.id, discovered)
                 store.set_list_error(ep.id, None)
             except Exception as e:
                 err = f"{type(e).__name__}: {str(e)[:200]}"
                 store.set_list_error(ep.id, err)
-            finally:
-                asyncio.run(provider.aclose())
     else:
         # CLI path: full discover + probe (unchanged).
         runner = ProbeRunner(load_settings())
@@ -349,13 +354,17 @@ def probe_model(name_or_id: str, req: ProbeModelRequest) -> ModelResultPublic:
 
     from .providers import make_provider
     settings = load_settings()
-    provider = make_provider(ep, settings.timeout_seconds)
-    try:
-        pr = asyncio.run(
-            provider.probe(req.model, settings.prompt, settings.max_tokens)
-        )
-    finally:
-        asyncio.run(provider.aclose())
+
+    async def _probe_one():
+        provider = make_provider(ep, settings.timeout_seconds)
+        try:
+            return await provider.probe(
+                req.model, settings.prompt, settings.max_tokens
+            )
+        finally:
+            await provider.aclose()
+
+    pr = asyncio.run(_probe_one())
 
     source = "discovered" if ep.mode == "discover" else "specified"
     new_row = ModelResult(
