@@ -9,7 +9,7 @@ to know which models actually work — now and again next week.
 ## Install
 
 ```bash
-git clone <this repo>
+git clone https://github.com/SimonGino/llm-model-probe.git
 cd llm-model-probe
 uv sync
 uv run probe --help
@@ -145,6 +145,12 @@ UI binds to `127.0.0.1` by default. API keys are stored in the same SQLite file 
 docker compose up -d --build
 # UI on http://localhost:8765 (反代再决定要不要给公网)
 # DB volume mounted from host ~/.llm-model-probe
+```
+
+或者直接拉预构建镜像（CI 推到 Docker Hub，支持 amd64 + arm64）：
+
+```bash
+docker pull simongino/llm-model-probe:latest
 ```
 
 ## 公网部署 (single user, token auth)

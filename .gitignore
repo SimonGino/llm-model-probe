@@ -5,6 +5,7 @@ build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
 
 # Virtual environments
 .venv
@@ -16,3 +17,6 @@ reports/
 # frontend
 frontend/node_modules/
 frontend/dist/
+
+# OS junk
+.DS_Store
