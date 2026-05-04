@@ -573,3 +573,56 @@ def test_set_tags_unknown_endpoint_404(client: TestClient) -> None:
         json={"tags": ["x"]},
     )
     assert r.status_code == 404
+
+
+def test_get_api_key_returns_full_plaintext(
+    client: TestClient, isolated_home: Path
+) -> None:
+    """The dedicated endpoint returns the full plaintext key."""
+    raw_key = "sk-FULL-PLAINTEXT-1234567890"
+    create = client.post(
+        "/api/endpoints",
+        json={
+            "name": "fullkey",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": raw_key,
+            "models": ["m"],
+            "no_probe": True,
+        },
+    )
+    ep_id = create.json()["id"]
+    r = client.get(f"/api/endpoints/{ep_id}/api-key")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"api_key": raw_key}
+
+
+def test_get_api_key_unknown_endpoint_404(client: TestClient) -> None:
+    r = client.get("/api/endpoints/ep_zzzzzz/api-key")
+    assert r.status_code == 404
+
+
+def test_detail_still_masks_api_key(
+    client: TestClient, isolated_home: Path
+) -> None:
+    """Regression: detail endpoint must NOT return the plaintext key
+    just because the dedicated /api-key endpoint exists."""
+    raw_key = "sk-MUST-NOT-LEAK-IN-DETAIL-1234"
+    create = client.post(
+        "/api/endpoints",
+        json={
+            "name": "mask-test",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": raw_key,
+            "models": ["m"],
+            "no_probe": True,
+        },
+    )
+    ep_id = create.json()["id"]
+    detail_text = client.get(f"/api/endpoints/{ep_id}").text
+    assert raw_key not in detail_text
+    detail_json = client.get(f"/api/endpoints/{ep_id}").json()
+    assert "api_key" not in detail_json
+    assert detail_json["api_key_masked"].startswith("sk-M")
+    assert detail_json["api_key_masked"].endswith("1234")

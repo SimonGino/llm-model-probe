@@ -345,6 +345,22 @@ def set_tags(name_or_id: str, body: TagsUpdate) -> EndpointSummary:
     return _summary(store, fresh)
 
 
+class ApiKeyResponse(BaseModel):
+    api_key: str
+
+
+@app.get(
+    "/api/endpoints/{name_or_id}/api-key",
+    response_model=ApiKeyResponse,
+)
+def get_api_key(name_or_id: str) -> ApiKeyResponse:
+    store = _store()
+    ep = store.get_endpoint(name_or_id)
+    if ep is None:
+        raise HTTPException(status_code=404, detail="endpoint not found")
+    return ApiKeyResponse(api_key=ep.api_key)
+
+
 def _apply_outcome(store: EndpointStore, ep: Endpoint, outcome) -> None:
     if outcome.list_error:
         store.set_list_error(ep.id, outcome.list_error)
