@@ -103,7 +103,14 @@ class OpenAIProvider:
             )
 
     async def aclose(self) -> None:
-        await self._client.close()
+        # Best-effort. httpx + asyncio.run across short-lived per-request
+        # clients can race on transport teardown ("Event loop is closed").
+        # The actual probe result has already been obtained; connection
+        # cleanup happens via GC anyway. Don't let cleanup mask success.
+        try:
+            await self._client.close()
+        except Exception:
+            pass
 
 
 class AnthropicProvider:
@@ -157,7 +164,14 @@ class AnthropicProvider:
             )
 
     async def aclose(self) -> None:
-        await self._client.close()
+        # Best-effort. httpx + asyncio.run across short-lived per-request
+        # clients can race on transport teardown ("Event loop is closed").
+        # The actual probe result has already been obtained; connection
+        # cleanup happens via GC anyway. Don't let cleanup mask success.
+        try:
+            await self._client.close()
+        except Exception:
+            pass
 
 
 def make_provider(endpoint: Endpoint, timeout: int) -> Provider:
