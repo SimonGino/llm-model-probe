@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Check, Copy } from "lucide-react";
 import { relative } from "@/lib/format";
 import TagEditor from "./TagEditor";
 import type { ModelResultPublic } from "@/lib/types";
@@ -313,6 +314,7 @@ function ModelRow({
         className="h-4 w-4"
       />
       <span className="font-mono text-xs flex-1 truncate">{model}</span>
+      <CopyButton text={model} />
       {filterSkip && !result && !pending && !transientError && (
         <Badge variant="secondary" className="text-xs">
           filter-skip
@@ -324,6 +326,37 @@ function ModelRow({
         transientError={transientError}
       />
     </label>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      title="Copy model id"
+      aria-label={`Copy ${text}`}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1200);
+          })
+          .catch(() => {
+            /* ignore */
+          });
+      }}
+      className="text-muted-foreground hover:text-foreground p-1 rounded"
+    >
+      {copied ? (
+        <Check className="h-3.5 w-3.5 text-green-600" />
+      ) : (
+        <Copy className="h-3.5 w-3.5" />
+      )}
+    </button>
   );
 }
 
