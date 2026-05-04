@@ -134,6 +134,121 @@ def test_init_schema_backfills_models_from_results(
     assert sorted(refreshed.models) == ["gpt-3.5", "gpt-4"]
 
 
+def test_endpoint_persists_tags(isolated_home: Path) -> None:
+    s = EndpointStore()
+    s.init_schema()
+    ep = Endpoint(
+        id=new_endpoint_id(),
+        name="tagged",
+        sdk="openai",
+        base_url="https://api.example.com/v1",
+        api_key="sk-test123",
+        mode="specified",
+        models=["a"],
+        note="",
+        tags=["bob", "trial"],
+    )
+    s.insert_endpoint(ep)
+    got = s.get_endpoint("tagged")
+    assert got is not None
+    assert got.tags == ["bob", "trial"]
+
+
+def test_endpoint_default_tags_empty(isolated_home: Path) -> None:
+    s = EndpointStore()
+    s.init_schema()
+    ep = Endpoint(
+        id=new_endpoint_id(),
+        name="notags",
+        sdk="openai",
+        base_url="https://api.example.com/v1",
+        api_key="sk-test123",
+        mode="specified",
+        models=[],
+        note="",
+    )
+    s.insert_endpoint(ep)
+    got = s.get_endpoint("notags")
+    assert got is not None
+    assert got.tags == []
+
+
+def test_set_tags_replaces(isolated_home: Path) -> None:
+    s = EndpointStore()
+    s.init_schema()
+    ep = Endpoint(
+        id=new_endpoint_id(),
+        name="rep",
+        sdk="openai",
+        base_url="https://api.example.com/v1",
+        api_key="sk-test123",
+        mode="specified",
+        models=[],
+        note="",
+        tags=["x"],
+    )
+    s.insert_endpoint(ep)
+    s.set_tags(ep.id, ["y", "z"])
+    got = s.get_endpoint("rep")
+    assert got is not None
+    assert got.tags == ["y", "z"]
+
+
+def test_init_schema_adds_tags_column_idempotently(
+    isolated_home: Path,
+) -> None:
+    """Old DB without tags_json column - init_schema adds it idempotently."""
+    import sqlite3
+
+    from llm_model_probe.paths import db_path, ensure_home
+
+    ensure_home()
+    path = db_path()
+    with sqlite3.connect(path) as c:
+        c.executescript(
+            """
+            CREATE TABLE endpoints (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                sdk TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                models_json TEXT NOT NULL DEFAULT '[]',
+                note TEXT NOT NULL DEFAULT '',
+                list_error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE model_results (
+                endpoint_id TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                latency_ms INTEGER,
+                error_type TEXT,
+                error_message TEXT,
+                response_preview TEXT,
+                last_tested_at TEXT NOT NULL,
+                PRIMARY KEY (endpoint_id, model_id),
+                FOREIGN KEY (endpoint_id) REFERENCES endpoints(id) ON DELETE CASCADE
+            );
+            INSERT INTO endpoints
+            (id, name, sdk, base_url, api_key, mode, created_at, updated_at)
+            VALUES
+            ('ep_legacy', 'legacy', 'openai', 'https://x/v1', 'sk-x', 'specified',
+             '2026-05-01T00:00:00', '2026-05-01T00:00:00');
+            """
+        )
+        c.commit()
+
+    s = EndpointStore()
+    s.init_schema()
+    legacy = s.get_endpoint("legacy")
+    assert legacy is not None
+    assert legacy.tags == []
+
+
 def test_init_schema_backfill_is_idempotent(isolated_home: Path) -> None:
     """Endpoints with non-empty models_json must not be touched by backfill."""
     s = EndpointStore()

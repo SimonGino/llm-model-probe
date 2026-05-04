@@ -27,6 +27,7 @@ class Endpoint:
     models: list[str] = field(default_factory=list)
     note: str = ""
     list_error: str | None = None
+    tags: list[str] = field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

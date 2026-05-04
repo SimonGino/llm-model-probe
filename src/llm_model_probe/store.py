@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS endpoints (
     models_json TEXT NOT NULL DEFAULT '[]',
     note        TEXT NOT NULL DEFAULT '',
     list_error  TEXT,
+    tags_json   TEXT NOT NULL DEFAULT '[]',
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
@@ -72,11 +73,22 @@ class EndpointStore:
     def init_schema(self) -> None:
         with self._conn() as c:
             c.executescript(SCHEMA)
+            self._migrate_tags(c)
             self._backfill_models_from_results(c)
         try:
             self._path.chmod(0o600)
         except FileNotFoundError:
             pass
+
+    @staticmethod
+    def _migrate_tags(c: sqlite3.Connection) -> None:
+        """Old DB without tags_json column - idempotently add it."""
+        cols = {row["name"] for row in c.execute("PRAGMA table_info(endpoints)")}
+        if "tags_json" not in cols:
+            c.execute(
+                "ALTER TABLE endpoints "
+                "ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"
+            )
 
     @staticmethod
     def _backfill_models_from_results(c: sqlite3.Connection) -> None:
@@ -116,12 +128,13 @@ class EndpointStore:
                 c.execute(
                     """INSERT INTO endpoints
                        (id, name, sdk, base_url, api_key, mode, models_json,
-                        note, list_error, created_at, updated_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                        note, list_error, tags_json, created_at, updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         ep.id, ep.name, ep.sdk, ep.base_url, ep.api_key,
                         ep.mode, json.dumps(ep.models), ep.note,
-                        ep.list_error, _iso(ep.created_at), _iso(ep.updated_at),
+                        ep.list_error, json.dumps(ep.tags),
+                        _iso(ep.created_at), _iso(ep.updated_at),
                     ),
                 )
         except sqlite3.IntegrityError as e:
@@ -151,6 +164,13 @@ class EndpointStore:
             c.execute(
                 "UPDATE endpoints SET list_error = ?, updated_at = ? WHERE id = ?",
                 (error, _iso(datetime.now()), ep_id),
+            )
+
+    def set_tags(self, ep_id: str, tags: list[str]) -> None:
+        with self._conn() as c:
+            c.execute(
+                "UPDATE endpoints SET tags_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(tags), _iso(datetime.now()), ep_id),
             )
 
     # --- model_results ---------------------------------------------
@@ -234,6 +254,7 @@ class EndpointStore:
             models=json.loads(row["models_json"]),
             note=row["note"],
             list_error=row["list_error"],
+            tags=json.loads(row["tags_json"]),
             created_at=_from_iso(row["created_at"]),
             updated_at=_from_iso(row["updated_at"]),
         )
