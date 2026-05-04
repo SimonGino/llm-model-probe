@@ -480,3 +480,62 @@ def test_probe_model_replaces_prior_result(
     detail = client.get(f"/api/endpoints/{ep_id}").json()
     assert len(detail["results"]) == 1
     assert detail["results"][0]["status"] == "available"
+
+
+def test_create_with_tags_persists(
+    client: TestClient, isolated_home: Path
+) -> None:
+    r = client.post(
+        "/api/endpoints",
+        json={
+            "name": "tagged",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-1234567890aaaa",
+            "models": ["m"],
+            "tags": ["bob", "trial"],
+            "no_probe": True,
+        },
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["tags"] == ["bob", "trial"]
+
+
+def test_create_default_tags_empty(
+    client: TestClient, isolated_home: Path
+) -> None:
+    r = client.post(
+        "/api/endpoints",
+        json={
+            "name": "notags",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-1234567890aaaa",
+            "models": ["m"],
+            "no_probe": True,
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["tags"] == []
+
+
+def test_summary_includes_tags(
+    client: TestClient, isolated_home: Path
+) -> None:
+    """list 接口也要返回 tags（不是只 detail 才有）。"""
+    client.post(
+        "/api/endpoints",
+        json={
+            "name": "in-summary",
+            "sdk": "openai",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-1234567890aaaa",
+            "models": ["m"],
+            "tags": ["a", "b"],
+            "no_probe": True,
+        },
+    )
+    items = client.get("/api/endpoints").json()
+    item = next(x for x in items if x["name"] == "in-summary")
+    assert item["tags"] == ["a", "b"]

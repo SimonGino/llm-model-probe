@@ -41,6 +41,7 @@ class EndpointSummary(BaseModel):
     available: int
     failed: int
     total_models: int
+    tags: list[str]
     last_tested_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -71,6 +72,7 @@ class EndpointCreate(BaseModel):
     api_key: str = Field(min_length=1)
     models: list[str] = []
     note: str = ""
+    tags: list[str] = []
     no_probe: bool = False
 
 
@@ -99,6 +101,18 @@ def _store() -> EndpointStore:
     return s
 
 
+def _normalize_tags(raw: list[str]) -> list[str]:
+    """Trim whitespace, drop empties, dedupe preserving first-seen order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in raw:
+        s = t.strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
 def _summary(store: EndpointStore, ep: Endpoint) -> EndpointSummary:
     ok, fail = store.summary(ep.id)
     return EndpointSummary(
@@ -112,6 +126,7 @@ def _summary(store: EndpointStore, ep: Endpoint) -> EndpointSummary:
         available=ok,
         failed=fail,
         total_models=len(ep.models),
+        tags=ep.tags,
         last_tested_at=store.last_tested_at(ep.id),
         created_at=ep.created_at or datetime.now(),
         updated_at=ep.updated_at or datetime.now(),
@@ -210,6 +225,7 @@ def create_endpoint(payload: EndpointCreate) -> EndpointDetail:
         mode=mode,  # type: ignore[arg-type]
         models=list(payload.models),
         note=payload.note,
+        tags=_normalize_tags(payload.tags),
     )
     try:
         store.insert_endpoint(ep)
