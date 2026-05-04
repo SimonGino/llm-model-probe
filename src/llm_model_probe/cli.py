@@ -262,6 +262,11 @@ def export(
 @app.command()
 def ui(
     port: int = typer.Option(8765, "--port"),
+    listen: str = typer.Option(
+        "127.0.0.1",
+        "--listen",
+        help="Bind address. 默认 127.0.0.1 仅本机；公网部署用 0.0.0.0.",
+    ),
     no_browser: bool = typer.Option(False, "--no-browser"),
     dev: bool = typer.Option(
         False, "--dev",
@@ -274,6 +279,14 @@ def ui(
     from pathlib import Path
 
     import uvicorn
+
+    is_localhost = listen in ("127.0.0.1", "localhost", "::1")
+    if not is_localhost and not os.environ.get("LLM_MODEL_PROBE_TOKEN"):
+        console.print(
+            "[red]✗[/red] 拒绝绑非-localhost 地址而 LLM_MODEL_PROBE_TOKEN 未设置。\n"
+            "  公网/局域网部署前请先 export LLM_MODEL_PROBE_TOKEN=<密钥>。"
+        )
+        raise typer.Exit(1)
 
     if dev:
         os.environ["LLM_MODEL_PROBE_DEV"] = "1"
@@ -289,8 +302,8 @@ def ui(
             raise typer.Exit(1)
         os.environ["LLM_MODEL_PROBE_DIST"] = str(dist)
 
-    url = f"http://localhost:{port}"
+    url = f"http://{listen}:{port}"
     console.print(f"[green]→[/green] {url}")
     if not no_browser:
         webbrowser.open(url)
-    uvicorn.run("llm_model_probe.api:app", host="127.0.0.1", port=port)
+    uvicorn.run("llm_model_probe.api:app", host=listen, port=port)
