@@ -656,7 +656,7 @@ function ModelStatus({
   }
   if (result) {
     if (result.status === "available") {
-      const { color, label } = latencyTone(result.latency_ms ?? 0);
+      const { color, label } = latencyTone(result.latency_ms ?? Number.MAX_SAFE_INTEGER);
       return (
         <span
           className="mono"
