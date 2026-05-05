@@ -656,19 +656,20 @@ function ModelStatus({
   }
   if (result) {
     if (result.status === "available") {
+      const { color, label } = latencyTone(result.latency_ms ?? 0);
       return (
         <span
           className="mono"
           style={{
             fontSize: 11,
-            color: "var(--ok)",
+            color,
             display: "flex",
             alignItems: "center",
             gap: 4,
           }}
         >
           <Icon name="check" size={10} />
-          {result.latency_ms}ms
+          {label}
         </span>
       );
     }
@@ -711,4 +712,10 @@ function ModelStatus({
   return (
     <span style={{ fontSize: 11, color: "var(--text-faint)" }}>untested</span>
   );
+}
+
+function latencyTone(ms: number): { color: string; label: string } {
+  if (ms < 500) return { color: "var(--ok)", label: `${ms}ms` };
+  if (ms < 2000) return { color: "var(--text-muted)", label: `${ms}ms` };
+  return { color: "var(--warn)", label: `${ms}ms` };
 }
