@@ -360,3 +360,13 @@ html:not([data-theme]) .btn-primary:hover {
 .model-row:hover {
   background: var(--bg-hover);
 }
+.model-row .row-copy {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.model-row:hover .row-copy {
+  opacity: 1;
+}
+.model-row .row-copy:has([data-copied]) {
+  opacity: 1;
+}

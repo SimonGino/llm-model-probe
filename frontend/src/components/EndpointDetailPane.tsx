@@ -613,7 +613,9 @@ function ModelRow({
       >
         {model}
       </span>
-      <CopyBtn text={model} title="Copy model id" />
+      <span className="row-copy">
+        <CopyBtn text={model} title="Copy model id" />
+      </span>
       <ModelStatus
         result={result}
         transientError={transientError}

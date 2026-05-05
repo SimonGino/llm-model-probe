@@ -257,6 +257,7 @@ export function CopyBtn({ text, title = "复制" }: { text: string; title?: stri
     <button
       type="button"
       className="btn btn-ghost btn-icon btn-sm"
+      data-copied={copied || undefined}
       onClick={(e) => {
         e.stopPropagation();
         navigator.clipboard?.writeText(text).catch(() => {});
