@@ -353,3 +353,10 @@ html:not([data-theme]) .btn-primary:hover {
     opacity: 1;
   }
 }
+.model-row {
+  background: var(--bg-elev);
+  transition: background 0.1s;
+}
+.model-row:hover {
+  background: var(--bg-hover);
+}

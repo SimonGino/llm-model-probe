@@ -533,13 +533,16 @@ function ModelGroup({
       </div>
       <div
         style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+          gap: 1,
           border: "1px solid var(--border)",
           borderRadius: 7,
           overflow: "hidden",
-          background: "var(--bg-elev)",
+          background: "var(--border)",
         }}
       >
-        {rows.map((m, i) => {
+        {rows.map((m) => {
           const r = resultByModel.get(m);
           const te = orch.errorFor(ep.id, m);
           const filterSkip = ep.excluded_by_filter.includes(m);
@@ -552,7 +555,6 @@ function ModelGroup({
               filterSkip={filterSkip}
               checked={checked.has(m)}
               toggle={() => toggle(m)}
-              last={i === rows.length - 1}
               pulse={!!pulse}
             />
           );
@@ -569,7 +571,6 @@ function ModelRow({
   filterSkip,
   checked,
   toggle,
-  last,
   pulse,
 }: {
   model: string;
@@ -578,24 +579,19 @@ function ModelRow({
   filterSkip: boolean;
   checked: boolean;
   toggle: () => void;
-  last: boolean;
   pulse: boolean;
 }) {
   return (
     <label
+      className="model-row"
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 9,
-        padding: "7px 12px",
-        borderBottom: last ? "none" : "1px solid var(--border)",
+        gap: 8,
+        padding: "6px 10px",
         cursor: "pointer",
-        transition: "background .1s",
+        minWidth: 0,
       }}
-      onMouseEnter={(e) =>
-        (e.currentTarget.style.background = "var(--bg-hover)")
-      }
-      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
       <input
         type="checkbox"
