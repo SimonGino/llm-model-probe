@@ -4,16 +4,13 @@ import { api } from "@/lib/api";
 import { auth, UnauthorizedError } from "@/lib/auth";
 import { useProbeOrchestrator } from "@/lib/orchestrator";
 import { useTheme, type Theme } from "@/lib/theme";
-import EndpointTable, { type LayoutMode } from "@/components/EndpointTable";
+import EndpointSidebar, {
+  type SortKey,
+} from "@/components/EndpointSidebar";
+import EndpointDetailPane from "@/components/EndpointDetailPane";
 import AddEndpointDialog from "@/components/AddEndpointDialog";
-import EndpointDetailDrawer from "@/components/EndpointDetailDrawer";
 import LoginScreen from "@/components/LoginScreen";
-import {
-  BrandMark,
-  Icon,
-  Segmented,
-  endpointHealth,
-} from "@/components/atoms";
+import { BrandMark, Icon } from "@/components/atoms";
 
 export default function App() {
   // Bind theme so the dataset attribute applies even on the login screen,
@@ -58,7 +55,7 @@ export default function App() {
     );
   }
   return (
-    <MainApp
+    <SplitApp
       onLogout={() => {
         auth.clear();
         setBumpAuth((n) => n + 1);
@@ -67,7 +64,7 @@ export default function App() {
   );
 }
 
-function MainApp({ onLogout }: { onLogout: () => void }) {
+function SplitApp({ onLogout }: { onLogout: () => void }) {
   const list = useQuery({
     queryKey: ["endpoints"],
     queryFn: api.listEndpoints,
@@ -76,29 +73,47 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
   const totalPending = orch.totalPending();
 
   const [showAdd, setShowAdd] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [autoTest, setAutoTest] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [sdkFilter, setSdkFilter] = useState<"all" | "openai" | "anthropic">(
-    "all",
-  );
-  const [healthFilter, setHealthFilter] = useState<"all" | "healthy" | "issues">(
-    "all",
-  );
-  const [layout, setLayout] = useState<LayoutMode>("table");
+  const [sortBy, setSortBy] = useState<SortKey>("status");
 
+  const endpoints = list.data ?? [];
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return endpoints;
+    const q = search.toLowerCase();
+    return endpoints.filter((ep) =>
+      [ep.name, ep.note, ep.base_url, ...ep.tags]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [endpoints, search]);
+
+  // Auto-select first endpoint when none selected (or current one disappears).
+  useEffect(() => {
+    if (endpoints.length === 0) {
+      if (selectedId !== null) setSelectedId(null);
+      return;
+    }
+    if (!selectedId || !endpoints.some((ep) => ep.id === selectedId)) {
+      setSelectedId(endpoints[0].id);
+    }
+  }, [endpoints, selectedId]);
+
+  // ⌘K / Ctrl+K → focus topbar search; Esc → close add dialog.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      if (showAdd) setShowAdd(false);
-      else if (selected) {
-        setSelected(null);
-        setAutoTest(false);
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        document.getElementById("topbar-search")?.focus();
+        return;
       }
+      if (e.key === "Escape" && showAdd) setShowAdd(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showAdd, selected]);
+  }, [showAdd]);
 
   async function retestEverything() {
     if (!list.data) return;
@@ -112,47 +127,28 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
     );
   }
 
-  const endpoints = list.data ?? [];
-
-  const filtered = useMemo(() => {
-    return endpoints.filter((ep) => {
-      if (search) {
-        const q = search.toLowerCase();
-        const hay = [ep.name, ep.note, ep.base_url, ...ep.tags]
-          .join(" ")
-          .toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      if (sdkFilter !== "all" && ep.sdk !== sdkFilter) return false;
-      if (healthFilter !== "all") {
-        const tone = endpointHealth(ep).tone;
-        if (healthFilter === "healthy" && tone !== "ok") return false;
-        if (healthFilter === "issues" && tone !== "warn" && tone !== "bad")
-          return false;
-      }
-      return true;
-    });
-  }, [endpoints, search, sdkFilter, healthFilter]);
-
-  const totals = useMemo(
-    () =>
-      endpoints.reduce(
-        (acc, ep) => {
-          acc.endpoints++;
-          acc.models += ep.total_models;
-          acc.available += ep.available;
-          acc.failed += ep.failed;
-          if (ep.list_error) acc.errored++;
-          return acc;
-        },
-        { endpoints: 0, models: 0, available: 0, failed: 0, errored: 0 },
-      ),
-    [endpoints],
-  );
+  function onDeleted(deletedId: string) {
+    const idx = filtered.findIndex((ep) => ep.id === deletedId);
+    const next =
+      filtered[idx + 1]?.id ??
+      filtered[idx - 1]?.id ??
+      filtered.find((ep) => ep.id !== deletedId)?.id ??
+      null;
+    setSelectedId(next);
+  }
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
+    <div
+      style={{
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        background: "var(--bg)",
+      }}
+    >
       <TopBar
+        search={search}
+        setSearch={setSearch}
         onAdd={() => setShowAdd(true)}
         onRetestAll={retestEverything}
         onLogout={onLogout}
@@ -160,79 +156,66 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
         retestPending={totalPending}
       />
 
-      <main
+      <div
         style={{
-          maxWidth: 1280,
-          margin: "0 auto",
-          padding: "28px 28px 80px",
+          flex: 1,
+          display: "grid",
+          gridTemplateColumns: "360px 1fr",
+          overflow: "hidden",
         }}
       >
-        {list.isLoading && (
-          <div style={{ color: "var(--text-muted)", padding: "12px 0" }}>
-            Loading…
-          </div>
-        )}
-        {list.error && (
-          <div style={{ color: "var(--bad)", padding: "12px 0" }}>
-            Error: {String(list.error)}
-          </div>
-        )}
-        {list.data && (
-          <>
-            <PageHeader totals={totals} />
-            <FilterBar
-              search={search}
-              setSearch={setSearch}
-              sdkFilter={sdkFilter}
-              setSdkFilter={setSdkFilter}
-              healthFilter={healthFilter}
-              setHealthFilter={setHealthFilter}
-              layout={layout}
-              setLayout={setLayout}
-              shown={filtered.length}
-              total={endpoints.length}
+        <EndpointSidebar
+          endpoints={filtered}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          sortBy={sortBy}
+          setSortBy={setSortBy}
+        />
+
+        <main style={{ overflow: "auto" }}>
+          {list.isLoading ? (
+            <div style={{ padding: 32, color: "var(--text-muted)" }}>
+              Loading…
+            </div>
+          ) : list.error ? (
+            <div style={{ padding: 32, color: "var(--bad)" }}>
+              Error: {String(list.error)}
+            </div>
+          ) : selectedId ? (
+            <EndpointDetailPane
+              key={selectedId}
+              idOrName={selectedId}
+              onDeleted={onDeleted}
             />
-            <EndpointTable
-              endpoints={filtered}
-              layout={layout}
-              onSelect={(id) => {
-                setSelected(id);
-                setAutoTest(false);
-              }}
-              onRetest={(id) => {
-                setSelected(id);
-                setAutoTest(true);
-              }}
+          ) : (
+            <EmptyDetail
+              hasEndpoints={endpoints.length > 0}
+              onAdd={() => setShowAdd(true)}
             />
-          </>
-        )}
-      </main>
+          )}
+        </main>
+      </div>
 
       <AddEndpointDialog
         open={showAdd}
         onClose={() => setShowAdd(false)}
-        onCreated={(id) => setSelected(id)}
-      />
-      <EndpointDetailDrawer
-        idOrName={selected}
-        autoTest={autoTest}
-        onAutoTestConsumed={() => setAutoTest(false)}
-        onClose={() => {
-          setSelected(null);
-          setAutoTest(false);
-        }}
+        onCreated={(id) => setSelectedId(id)}
       />
     </div>
   );
 }
 
 function TopBar({
+  search,
+  setSearch,
   onAdd,
   onRetestAll,
   onLogout,
   retesting,
   retestPending,
 }: {
+  search: string;
+  setSearch: (s: string) => void;
   onAdd: () => void;
   onRetestAll: () => void;
   onLogout: () => void;
@@ -242,57 +225,74 @@ function TopBar({
   return (
     <header
       style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 30,
-        background: "color-mix(in oklab, var(--bg) 92%, transparent)",
-        backdropFilter: "saturate(1.4) blur(8px)",
-        WebkitBackdropFilter: "saturate(1.4) blur(8px)",
         borderBottom: "1px solid var(--border)",
+        padding: "10px 18px",
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
       }}
     >
-      <div
-        style={{
-          maxWidth: 1280,
-          margin: "0 auto",
-          padding: "10px 28px",
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-        }}
-      >
-        <BrandMark />
-        <div style={{ fontWeight: 600, letterSpacing: -0.2, fontSize: 14 }}>
-          llm-model-probe
-        </div>
-        <span className="badge" style={{ marginLeft: 4 }}>
-          v0.4
+      <BrandMark size={22} />
+      <span style={{ fontWeight: 600, fontSize: 13 }}>llm-model-probe</span>
+      <span className="badge" style={{ marginLeft: 2 }}>
+        v0.4
+      </span>
+      <div style={{ flex: 1 }} />
+      <div style={{ position: "relative" }}>
+        <Icon
+          name="search"
+          size={12}
+          style={{
+            position: "absolute",
+            left: 9,
+            top: "50%",
+            transform: "translateY(-50%)",
+            color: "var(--text-faint)",
+          }}
+        />
+        <input
+          id="topbar-search"
+          className="input"
+          placeholder="搜索…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ width: 240, paddingLeft: 28, paddingRight: 60 }}
+        />
+        <span
+          style={{
+            position: "absolute",
+            right: 8,
+            top: "50%",
+            transform: "translateY(-50%)",
+            display: "flex",
+            gap: 2,
+            pointerEvents: "none",
+          }}
+        >
+          <span className="kbd">⌘</span>
+          <span className="kbd">K</span>
         </span>
-
-        <div style={{ flex: 1 }} />
-
-        <ThemeToggle />
-
-        <button
-          className="btn"
-          onClick={onRetestAll}
-          disabled={retesting}
-          title="Retest all endpoints"
-        >
-          <Icon name="refresh" size={13} />
-          {retesting ? `Retesting (${retestPending})…` : "Retest all"}
-        </button>
-        <button className="btn btn-primary" onClick={onAdd}>
-          <Icon name="plus" size={13} /> Add endpoint
-        </button>
-        <button
-          className="btn btn-ghost btn-icon"
-          onClick={onLogout}
-          title="Logout"
-        >
-          <Icon name="logout" size={13} />
-        </button>
       </div>
+      <ThemeToggle />
+      <button
+        className="btn"
+        onClick={onRetestAll}
+        disabled={retesting}
+        title="Retest all endpoints"
+      >
+        <Icon name="refresh" size={12} />
+        {retesting ? `Retesting (${retestPending})…` : "Retest all"}
+      </button>
+      <button className="btn btn-primary" onClick={onAdd}>
+        <Icon name="plus" size={12} /> Add
+      </button>
+      <button
+        className="btn btn-ghost btn-icon"
+        onClick={onLogout}
+        title="Logout"
+      >
+        <Icon name="logout" size={12} />
+      </button>
     </header>
   );
 }
@@ -304,236 +304,70 @@ function ThemeToggle() {
     dim: "dark",
     dark: "light",
   };
-  const icon = theme === "light" ? "sun" : theme === "dim" ? "circle-half" : "moon";
-  const label = theme === "light" ? "Light" : theme === "dim" ? "Dim" : "Dark";
+  const icon =
+    theme === "light" ? "sun" : theme === "dim" ? "circle-half" : "moon";
+  const label =
+    theme === "light" ? "Light" : theme === "dim" ? "Dim" : "Dark";
   return (
     <button
       className="btn btn-ghost btn-icon"
       title={`Theme: ${label} (click to cycle)`}
       onClick={() => setTheme(next[theme])}
     >
-      <Icon name={icon} size={14} />
+      <Icon name={icon} size={13} />
     </button>
   );
 }
 
-function PageHeader({
-  totals,
+function EmptyDetail({
+  hasEndpoints,
+  onAdd,
 }: {
-  totals: {
-    endpoints: number;
-    models: number;
-    available: number;
-    failed: number;
-    errored: number;
-  };
+  hasEndpoints: boolean;
+  onAdd: () => void;
 }) {
-  return (
-    <div style={{ marginBottom: 22 }}>
+  if (hasEndpoints) {
+    return (
       <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          gap: 12,
-          marginBottom: 4,
-        }}
+        style={{ padding: 60, textAlign: "center", color: "var(--text-muted)" }}
       >
-        <h1
-          style={{
-            fontSize: 24,
-            fontWeight: 600,
-            margin: 0,
-            letterSpacing: -0.4,
-          }}
-        >
-          Endpoints
-        </h1>
-        <span style={{ color: "var(--text-faint)", fontSize: 13 }}>
-          {totals.endpoints} endpoints · {totals.models} models tracked
-        </span>
+        选择左侧端点查看详情
       </div>
-
-      <div
-        style={{
-          display: "flex",
-          gap: 28,
-          marginTop: 14,
-          flexWrap: "wrap",
-        }}
-      >
-        <Stat
-          label="Available"
-          value={totals.available}
-          tone="ok"
-          sub={`${pct(totals.available, totals.models)}% of probed`}
-        />
-        <Stat
-          label="Failed"
-          value={totals.failed}
-          tone="bad"
-          sub={totals.failed === 0 ? "no current failures" : "needs attention"}
-        />
-        <Stat
-          label="List errors"
-          value={totals.errored}
-          tone={totals.errored > 0 ? "warn" : "muted"}
-          sub="endpoints unreachable"
-        />
-        <Stat
-          label="Tracked models"
-          value={totals.models}
-          tone="muted"
-          sub="across all endpoints"
-        />
-      </div>
-    </div>
-  );
-}
-
-function pct(a: number, b: number): number {
-  return b === 0 ? 0 : Math.round((a / b) * 100);
-}
-
-function Stat({
-  label,
-  value,
-  tone = "muted",
-  sub,
-}: {
-  label: string;
-  value: number;
-  tone?: "ok" | "bad" | "warn" | "muted";
-  sub: string;
-}) {
-  const color = {
-    ok: "var(--ok)",
-    bad: "var(--bad)",
-    warn: "var(--warn)",
-    muted: "var(--text)",
-  }[tone];
-  return (
-    <div>
-      <div
-        style={{
-          fontSize: 11,
-          color: "var(--text-muted)",
-          textTransform: "uppercase",
-          letterSpacing: 0.4,
-          fontWeight: 500,
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: 28,
-          fontWeight: 600,
-          color,
-          lineHeight: 1.1,
-          fontFamily: "Inter",
-          letterSpacing: -0.5,
-          marginTop: 2,
-        }}
-      >
-        {value.toLocaleString()}
-      </div>
-      <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 1 }}>
-        {sub}
-      </div>
-    </div>
-  );
-}
-
-function FilterBar({
-  search,
-  setSearch,
-  sdkFilter,
-  setSdkFilter,
-  healthFilter,
-  setHealthFilter,
-  layout,
-  setLayout,
-  shown,
-  total,
-}: {
-  search: string;
-  setSearch: (s: string) => void;
-  sdkFilter: "all" | "openai" | "anthropic";
-  setSdkFilter: (v: "all" | "openai" | "anthropic") => void;
-  healthFilter: "all" | "healthy" | "issues";
-  setHealthFilter: (v: "all" | "healthy" | "issues") => void;
-  layout: LayoutMode;
-  setLayout: (v: LayoutMode) => void;
-  shown: number;
-  total: number;
-}) {
+    );
+  }
   return (
     <div
       style={{
-        display: "flex",
-        gap: 8,
-        alignItems: "center",
-        marginBottom: 14,
-        flexWrap: "wrap",
+        height: "100%",
+        display: "grid",
+        placeItems: "center",
+        padding: 32,
       }}
     >
-      <div style={{ position: "relative", minWidth: 240 }}>
-        <Icon
-          name="search"
-          size={13}
+      <div style={{ textAlign: "center", maxWidth: 360 }}>
+        <h2
           style={{
-            position: "absolute",
-            left: 10,
-            top: "50%",
-            transform: "translateY(-50%)",
-            color: "var(--text-faint)",
+            margin: 0,
+            fontSize: 18,
+            fontWeight: 600,
+            letterSpacing: -0.3,
           }}
-        />
-        <input
-          className="input"
-          placeholder="搜索名称 / 备注 / 标签 / URL…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ paddingLeft: 30 }}
-        />
+        >
+          还没有端点
+        </h2>
+        <p
+          style={{
+            color: "var(--text-muted)",
+            fontSize: 13,
+            margin: "6px 0 18px",
+          }}
+        >
+          注册一个 OpenAI / Anthropic 兼容端点，立即发现可用模型。
+        </p>
+        <button className="btn btn-primary" onClick={onAdd}>
+          <Icon name="plus" size={13} /> Add endpoint
+        </button>
       </div>
-
-      <Segmented
-        options={[
-          { value: "all", label: "All" },
-          { value: "openai", label: "OpenAI" },
-          { value: "anthropic", label: "Anthropic" },
-        ]}
-        value={sdkFilter}
-        onChange={setSdkFilter}
-      />
-
-      <Segmented
-        options={[
-          { value: "all", label: "Any" },
-          { value: "healthy", label: "Healthy" },
-          { value: "issues", label: "Issues" },
-        ]}
-        value={healthFilter}
-        onChange={setHealthFilter}
-      />
-
-      <div style={{ flex: 1 }} />
-
-      <span style={{ fontSize: 12, color: "var(--text-faint)" }}>
-        {shown}/{total}
-      </span>
-
-      <Segmented
-        options={[
-          { value: "table", label: "Table" },
-          { value: "cards", label: "Cards" },
-        ]}
-        value={layout}
-        onChange={setLayout}
-        compact
-      />
     </div>
   );
 }
-
