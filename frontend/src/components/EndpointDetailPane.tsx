@@ -772,6 +772,7 @@ function SortControls({
         <button
           key={k}
           type="button"
+          aria-pressed={mode === k}
           onClick={() => setMode(k)}
           style={{
             padding: "0 9px",
