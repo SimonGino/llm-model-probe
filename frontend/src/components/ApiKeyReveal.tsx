@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Eye, EyeOff, Copy, Check } from "lucide-react";
 import { api } from "@/lib/api";
+import { Icon } from "@/components/atoms";
 
 export default function ApiKeyReveal({
   endpointId,
@@ -41,33 +41,45 @@ export default function ApiKeyReveal({
   }
 
   return (
-    <span className="inline-flex items-center gap-1">
-      <code className="text-xs">{revealed ?? masked}</code>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <code
+        className="mono"
+        style={{
+          background: "var(--bg-sunk)",
+          padding: "2px 6px",
+          borderRadius: 4,
+          fontSize: 11,
+          letterSpacing: 0.5,
+          wordBreak: "break-all",
+        }}
+      >
+        {revealed ?? masked}
+      </code>
       <button
         type="button"
+        className="btn btn-ghost btn-icon btn-sm"
         title={revealed ? "Hide" : "Reveal"}
         onClick={toggleReveal}
         disabled={busy}
-        className="text-muted-foreground hover:text-foreground p-1 rounded flex-shrink-0"
       >
-        {revealed ? (
-          <EyeOff className="h-3.5 w-3.5" />
-        ) : (
-          <Eye className="h-3.5 w-3.5" />
-        )}
+        <Icon
+          name={revealed ? "eye-off" : "eye"}
+          size={12}
+          style={{ color: "var(--text-muted)" }}
+        />
       </button>
       <button
         type="button"
+        className="btn btn-ghost btn-icon btn-sm"
         title="Copy full api_key"
         onClick={copy}
         disabled={busy}
-        className="text-muted-foreground hover:text-foreground p-1 rounded flex-shrink-0"
       >
-        {copied ? (
-          <Check className="h-3.5 w-3.5 text-green-600" />
-        ) : (
-          <Copy className="h-3.5 w-3.5" />
-        )}
+        <Icon
+          name={copied ? "check" : "copy"}
+          size={12}
+          style={{ color: copied ? "var(--ok)" : "var(--text-muted)" }}
+        />
       </button>
     </span>
   );
