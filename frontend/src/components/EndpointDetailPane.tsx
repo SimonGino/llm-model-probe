@@ -12,6 +12,7 @@ import TagEditor from "./TagEditor";
 import ApiKeyReveal from "./ApiKeyReveal";
 import { relative } from "@/lib/format";
 import type { EndpointDetail, ModelResultPublic } from "@/lib/types";
+import { ProviderIcon } from "@/lib/provider";
 
 export default function EndpointDetailPane({
   idOrName,
@@ -602,6 +603,7 @@ function ModelRow({
         onChange={toggle}
         style={{ accentColor: "var(--text)" }}
       />
+      <ProviderIcon modelId={model} size={14} />
       <span
         className="mono"
         style={{
