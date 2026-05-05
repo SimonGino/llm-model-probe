@@ -121,7 +121,7 @@ export default function EndpointDetailPane({
   return (
     <div
       key={d.id}
-      style={{ padding: "22px 28px 32px", maxWidth: 880 }}
+      style={{ padding: "22px 32px 32px", width: "100%" }}
       className="anim-fade-in"
     >
       {/* header */}
