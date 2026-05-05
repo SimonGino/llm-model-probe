@@ -16,6 +16,7 @@ import {
   Spark,
   Baichuan,
 } from "@lobehub/icons";
+import type { ComponentType } from "react";
 import { Icon } from "@/components/atoms";
 
 export type ProviderKey =
@@ -69,7 +70,7 @@ export function detectProvider(modelId: string): ProviderKey {
 
 const ICON_MAP: Record<
   Exclude<ProviderKey, "unknown">,
-  React.ComponentType<{ size?: number }>
+  ComponentType<{ size?: number }>
 > = {
   qwen: Qwen,
   deepseek: DeepSeek,
