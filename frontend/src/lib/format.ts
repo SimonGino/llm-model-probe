@@ -7,3 +7,15 @@ export function relative(when: string | null): string {
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86_400)}d ago`;
 }
+
+export type FreshnessTone = "fresh" | "ok" | "old" | "stale";
+
+export function freshnessTone(when: string | null): FreshnessTone {
+  if (!when) return "stale";
+  const ms = Date.now() - new Date(when).getTime();
+  const h = ms / 3_600_000;
+  if (h < 1) return "fresh";
+  if (h < 24) return "ok";
+  if (h < 168) return "old";
+  return "stale";
+}
