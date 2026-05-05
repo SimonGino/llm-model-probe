@@ -25,7 +25,8 @@ type IconName =
   | "tag"
   | "sun"
   | "moon"
-  | "circle-half";
+  | "circle-half"
+  | "cpu";
 
 export function Icon({
   name,
@@ -213,6 +214,14 @@ export function Icon({
           <circle cx="12" cy="12" r="9" />
           <path d="M12 3v18" />
           <path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case "cpu":
+      return (
+        <svg {...common}>
+          <rect x="4" y="4" width="16" height="16" rx="2" />
+          <rect x="9" y="9" width="6" height="6" />
+          <path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3" />
         </svg>
       );
     default:
