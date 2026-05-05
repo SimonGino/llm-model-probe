@@ -680,7 +680,9 @@ function ModelStatus({
   }
   if (result) {
     if (result.status === "available") {
-      const { color, label } = latencyTone(result.latency_ms ?? Number.MAX_SAFE_INTEGER);
+      const ms = result.latency_ms;
+      const { color } = latencyTone(ms ?? Number.MAX_SAFE_INTEGER);
+      const label = ms == null ? "—" : `${ms}ms`;
       return (
         <span
           className="mono"
