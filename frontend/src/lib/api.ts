@@ -5,6 +5,8 @@ import type {
   EndpointUpdate,
   PasteSuggestion,
   ModelResultPublic,
+  ParserSettings,
+  AiParseResult,
 } from "./types";
 import { auth, UnauthorizedError } from "./auth";
 
@@ -78,4 +80,10 @@ export const api = {
       "GET",
       `/api/endpoints/${encodeURIComponent(idOrName)}/api-key`,
     ),
+  getParserSettings: () =>
+    req<ParserSettings>("GET", "/api/settings/parser"),
+  setParserSettings: (s: ParserSettings) =>
+    req<ParserSettings>("PUT", "/api/settings/parser", s),
+  aiParse: (blob: string) =>
+    req<AiParseResult>("POST", "/api/ai-parse", { blob }),
 };

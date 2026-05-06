@@ -62,3 +62,17 @@ export interface EndpointUpdate {
   api_key?: string;
   note?: string;
 }
+
+export interface ParserSettings {
+  endpoint_id: string | null;
+  model_id: string | null;
+}
+
+export interface AiParseResult {
+  base_url: string | null;
+  api_key: string | null;
+  sdk: "openai" | "anthropic" | null;
+  name: string | null;
+  confidence: number;
+  latency_ms: number;
+}
