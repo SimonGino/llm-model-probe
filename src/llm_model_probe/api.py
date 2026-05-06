@@ -17,6 +17,8 @@ _STRIP_SUFFIXES = (
     "/completions",
 )
 
+_CORE_FIELDS: frozenset[str] = frozenset({"sdk", "base_url", "api_key"})
+
 
 def normalize_base_url(url: str) -> str:
     """Strip well-known completion-endpoint suffixes from a base URL.
@@ -381,6 +383,8 @@ def update_endpoint_route(
     new_api_key = payload.api_key
     new_note = payload.note
 
+    update_kwargs: dict[str, object] = {}
+
     # Name uniqueness — same name as self is fine
     if new_name is not None and new_name != existing.name:
         other = store.get_endpoint(new_name)
@@ -389,23 +393,18 @@ def update_endpoint_route(
                 status_code=409,
                 detail=f"name '{new_name}' already in use",
             )
-
-    update_kwargs: dict = {}
-    core_changed = False
-    if new_name is not None and new_name != existing.name:
         update_kwargs["name"] = new_name
+
     if new_sdk is not None and new_sdk != existing.sdk:
         update_kwargs["sdk"] = new_sdk
-        core_changed = True
     if new_base_url is not None and new_base_url != existing.base_url:
         update_kwargs["base_url"] = new_base_url
-        core_changed = True
     if new_api_key is not None and new_api_key != existing.api_key:
         update_kwargs["api_key"] = new_api_key
-        core_changed = True
     if new_note is not None and new_note != existing.note:
         update_kwargs["note"] = new_note
-    if core_changed:
+
+    if update_kwargs.keys() & _CORE_FIELDS:
         update_kwargs["stale_since"] = datetime.now()
 
     if update_kwargs:
