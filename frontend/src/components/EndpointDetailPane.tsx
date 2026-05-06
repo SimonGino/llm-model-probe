@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useProbeOrchestrator } from "@/lib/orchestrator";
@@ -56,11 +56,30 @@ export default function EndpointDetailPane({
     },
   });
 
+  const rediscover = useMutation({
+    mutationFn: (id: string) => api.rediscoverEndpoint(id),
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ["endpoint", id] });
+      qc.invalidateQueries({ queryKey: ["endpoints"] });
+    },
+  });
+
   function toggle(model: string) {
     setChecked((prev) => {
       const n = new Set(prev);
       if (n.has(model)) n.delete(model);
       else n.add(model);
+      return n;
+    });
+  }
+
+  function toggleAll(rows: string[]) {
+    if (rows.length === 0) return;
+    setChecked((prev) => {
+      const allChecked = rows.every((m) => prev.has(m));
+      const n = new Set(prev);
+      if (allChecked) for (const m of rows) n.delete(m);
+      else for (const m of rows) n.add(m);
       return n;
     });
   }
@@ -182,12 +201,27 @@ export default function EndpointDetailPane({
         <div style={{ flex: 1 }} />
         <button
           className="btn btn-sm"
-          onClick={() => orch.run(d.id, d.models)}
-          disabled={d.models.length === 0 || pending > 0}
-          title="Retest all models on this endpoint"
+          onClick={() => {
+            if (d.mode === "discover") rediscover.mutate(d.id);
+            else orch.run(d.id, d.models);
+          }}
+          disabled={
+            rediscover.isPending ||
+            pending > 0 ||
+            (d.mode === "specified" && d.models.length === 0)
+          }
+          title={
+            d.mode === "discover"
+              ? "Re-fetch model list from /v1/models (use Test all to probe)"
+              : "Retest all specified models"
+          }
         >
           <Icon name="refresh" size={11} />
-          {pending > 0 ? `Testing… (${pending})` : "Retest"}
+          {rediscover.isPending
+            ? "Refreshing…"
+            : pending > 0
+              ? `Testing… (${pending})`
+              : "Retest"}
         </button>
         <button
           className="btn btn-sm btn-ghost btn-icon"
@@ -339,6 +373,11 @@ export default function EndpointDetailPane({
               flexWrap: "wrap",
             }}
           >
+            <TriCheckbox
+              state={triState(visible, checked)}
+              onClick={() => toggleAll(visible)}
+              title="全选/全不选当前可见模型"
+            />
             <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>Models</h3>
             <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
               {d.models.length}
@@ -399,6 +438,7 @@ export default function EndpointDetailPane({
               rows={testing}
               checked={checked}
               toggle={toggle}
+              toggleAll={toggleAll}
               resultByModel={resultByModel}
               orch={orch}
               ep={d}
@@ -413,6 +453,7 @@ export default function EndpointDetailPane({
               rows={availableSorted}
               checked={checked}
               toggle={toggle}
+              toggleAll={toggleAll}
               resultByModel={resultByModel}
               orch={orch}
               ep={d}
@@ -426,6 +467,7 @@ export default function EndpointDetailPane({
               rows={failedSorted}
               checked={checked}
               toggle={toggle}
+              toggleAll={toggleAll}
               resultByModel={resultByModel}
               orch={orch}
               ep={d}
@@ -439,6 +481,7 @@ export default function EndpointDetailPane({
               rows={untestedSorted}
               checked={checked}
               toggle={toggle}
+              toggleAll={toggleAll}
               resultByModel={resultByModel}
               orch={orch}
               ep={d}
@@ -558,6 +601,7 @@ function ModelGroup({
   rows,
   checked,
   toggle,
+  toggleAll,
   resultByModel,
   orch,
   ep,
@@ -569,6 +613,7 @@ function ModelGroup({
   rows: string[];
   checked: Set<string>;
   toggle: (m: string) => void;
+  toggleAll: (rows: string[]) => void;
   resultByModel: Map<string, ModelResultPublic>;
   orch: ReturnType<typeof useProbeOrchestrator>;
   ep: EndpointDetail;
@@ -592,6 +637,11 @@ function ModelGroup({
           paddingLeft: 2,
         }}
       >
+        <TriCheckbox
+          state={triState(rows, checked)}
+          onClick={() => toggleAll(rows)}
+          title={`全选/全不选 ${title}`}
+        />
         <span className="dot" style={{ background: color }} />
         <span
           style={{
@@ -850,5 +900,41 @@ function SortControls({
         </button>
       ))}
     </div>
+  );
+}
+
+type TriState = "all" | "partial" | "none";
+
+function triState(rows: string[], checked: Set<string>): TriState {
+  if (rows.length === 0) return "none";
+  let hit = 0;
+  for (const m of rows) if (checked.has(m)) hit++;
+  if (hit === 0) return "none";
+  if (hit === rows.length) return "all";
+  return "partial";
+}
+
+function TriCheckbox({
+  state,
+  onClick,
+  title,
+}: {
+  state: TriState;
+  onClick: () => void;
+  title?: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = state === "partial";
+  }, [state]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={state === "all"}
+      onChange={onClick}
+      title={title}
+      style={{ accentColor: "var(--text)", cursor: "pointer" }}
+    />
   );
 }
