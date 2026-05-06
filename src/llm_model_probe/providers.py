@@ -23,6 +23,12 @@ class ProbeResult:
     response_preview: str | None = None
 
 
+@dataclass
+class CompleteResult:
+    text: str
+    latency_ms: int
+
+
 class Provider(Protocol):
     name: str
     sdk: str
@@ -32,6 +38,10 @@ class Provider(Protocol):
     async def probe(
         self, model: str, prompt: str, max_tokens: int
     ) -> ProbeResult: ...
+
+    async def complete(
+        self, model: str, prompt: str, max_tokens: int
+    ) -> CompleteResult: ...
 
     async def aclose(self) -> None: ...
 
@@ -70,10 +80,13 @@ class OpenAIProvider:
             try:
                 resp = await self._client.chat.completions.create(**kwargs)
             except Exception as e:
-                # Reasoning models (o1/o3/gpt-5 family) may require
-                # max_completion_tokens instead of max_tokens.
+                # Reasoning models (o1/o3/gpt-5 family) need max_completion_tokens
+                # AND reasoning_effort=minimal — without the latter, the reasoning
+                # budget eats the small probe budget and content comes back empty.
                 if "max_completion_tokens" in str(e).lower():
-                    kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+                    kwargs.pop("max_tokens", None)
+                    kwargs["max_completion_tokens"] = max(32, max_tokens)
+                    kwargs["reasoning_effort"] = "minimal"
                     resp = await self._client.chat.completions.create(**kwargs)
                 else:
                     raise
@@ -101,6 +114,44 @@ class OpenAIProvider:
                 error_type=type(e).__name__,
                 error_message=_truncate(str(e), 300),
             )
+
+    async def complete(
+        self, model: str, prompt: str, max_tokens: int
+    ) -> CompleteResult:
+        start = time.perf_counter()
+        kwargs: dict = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+            # Disable thinking for Qwen-style vLLM proxies; ignored elsewhere.
+            "extra_body": {
+                "chat_template_kwargs": {"enable_thinking": False}
+            },
+        }
+
+        def _extract_text(resp) -> str:
+            if not resp.choices:
+                return ""
+            msg = resp.choices[0].message
+            return (msg.content if msg else "") or ""
+
+        try:
+            resp = await self._client.chat.completions.create(**kwargs)
+            text = _extract_text(resp)
+        except Exception:
+            text = ""
+        # Some proxies accept response_format but silently return empty content,
+        # or reject extra_body. Retry stripped down if the first call yielded
+        # nothing usable.
+        if not text:
+            kwargs.pop("response_format", None)
+            kwargs.pop("extra_body", None)
+            resp = await self._client.chat.completions.create(**kwargs)
+            text = _extract_text(resp)
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return CompleteResult(text=text, latency_ms=elapsed)
 
     async def aclose(self) -> None:
         # Best-effort. httpx + asyncio.run across short-lived per-request
@@ -162,6 +213,22 @@ class AnthropicProvider:
                 error_type=type(e).__name__,
                 error_message=_truncate(str(e), 300),
             )
+
+    async def complete(
+        self, model: str, prompt: str, max_tokens: int
+    ) -> CompleteResult:
+        start = time.perf_counter()
+        resp = await self._client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            temperature=0,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        elapsed = int((time.perf_counter() - start) * 1000)
+        text = ""
+        if resp.content:
+            text = getattr(resp.content[0], "text", "") or ""
+        return CompleteResult(text=text, latency_ms=elapsed)
 
     async def aclose(self) -> None:
         # Best-effort. httpx + asyncio.run across short-lived per-request

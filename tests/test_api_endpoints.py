@@ -852,3 +852,113 @@ def test_retest_keeps_stale_when_list_error(
     body = r2.json()
     assert body["list_error"] == "ConnectError: name resolution failed"
     assert body["stale_since"] is not None  # still stale — failed retest didn't refresh
+
+
+def test_rediscover_replaces_models_and_clears_errors(
+    client: TestClient,
+    seed_store: EndpointStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /rediscover re-calls list_models, replaces ep.models, clears
+    list_error + stale_since, and removes orphan results (models that are
+    no longer in the discovered list)."""
+    from llm_model_probe.providers import OpenAIProvider
+
+    ep = _seed_endpoint(seed_store, "rd-ok")  # seeds gpt-4 (ok) + gpt-3.5 (failed)
+    seed_store.set_list_error(ep.id, "AuthError: bad key")
+    seed_store.update_endpoint(ep.id, stale_since=datetime.now())
+
+    async def fake_list_models(self):  # noqa: ARG001
+        return ["m-new-1", "m-new-2"]
+
+    monkeypatch.setattr(OpenAIProvider, "list_models", fake_list_models)
+
+    r = client.post(f"/api/endpoints/{ep.id}/rediscover")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["models"] == ["m-new-1", "m-new-2"]
+    assert body["list_error"] is None
+    assert body["stale_since"] is None
+    # Orphan results (gpt-4, gpt-3.5 — no longer in discovered list) must be
+    # cleaned up so the FAILED/AVAILABLE summary counts reflect the new list.
+    result_ids = {res["model_id"] for res in body["results"]}
+    assert result_ids == set()
+    summary = client.get(f"/api/endpoints/{ep.id}").json()
+    assert summary["available"] == 0
+    assert summary["failed"] == 0
+    assert summary["total_models"] == 2
+
+
+def test_rediscover_keeps_results_for_models_still_listed(
+    client: TestClient,
+    seed_store: EndpointStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Models that survive in the new list keep their prior probe results."""
+    from llm_model_probe.providers import OpenAIProvider
+
+    ep = _seed_endpoint(seed_store, "rd-overlap")  # gpt-4 (ok) + gpt-3.5 (failed)
+
+    async def fake_list_models(self):  # noqa: ARG001
+        return ["gpt-4", "new-one"]  # gpt-4 stays; gpt-3.5 dropped
+
+    monkeypatch.setattr(OpenAIProvider, "list_models", fake_list_models)
+
+    r = client.post(f"/api/endpoints/{ep.id}/rediscover")
+    assert r.status_code == 200
+    body = r.json()
+    result_ids = {res["model_id"] for res in body["results"]}
+    assert result_ids == {"gpt-4"}
+    assert body["available"] == 1
+    assert body["failed"] == 0
+
+
+def test_rediscover_list_error_preserves_models(
+    client: TestClient,
+    seed_store: EndpointStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If list_models() fails, keep prior models and surface list_error."""
+    from llm_model_probe.providers import OpenAIProvider
+
+    ep = _seed_endpoint(seed_store, "rd-fail")
+    # Pretend ep already had a discovered list
+    from llm_model_probe.api import _persist_models
+    _persist_models(seed_store, ep.id, ["old-a", "old-b"])
+
+    async def fail_list_models(self):  # noqa: ARG001
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(OpenAIProvider, "list_models", fail_list_models)
+
+    r = client.post(f"/api/endpoints/{ep.id}/rediscover")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["models"] == ["old-a", "old-b"]
+    assert body["list_error"] is not None
+    assert "kaboom" in body["list_error"]
+
+
+def test_rediscover_specified_mode_rejected_400(
+    client: TestClient,
+    seed_store: EndpointStore,
+) -> None:
+    """Specified-mode endpoints don't have a list to re-discover."""
+    ep = Endpoint(
+        id=new_endpoint_id(),
+        name="spec",
+        sdk="openai",
+        base_url="https://api.example.com/v1",
+        api_key="sk-1234567890aaaa",
+        mode="specified",
+        models=["m"],
+    )
+    seed_store.insert_endpoint(ep)
+
+    r = client.post(f"/api/endpoints/{ep.id}/rediscover")
+    assert r.status_code == 400
+
+
+def test_rediscover_endpoint_not_found_404(client: TestClient) -> None:
+    r = client.post("/api/endpoints/ep_zzzzzz/rediscover")
+    assert r.status_code == 404

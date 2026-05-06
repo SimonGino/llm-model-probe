@@ -53,6 +53,12 @@ CREATE TABLE IF NOT EXISTS model_results (
 
 CREATE INDEX IF NOT EXISTS idx_model_results_endpoint
     ON model_results(endpoint_id);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -271,6 +277,51 @@ class EndpointStore:
                 "UPDATE endpoints SET updated_at = ? WHERE id = ?",
                 (_iso(datetime.now()), ep_id),
             )
+
+    def delete_orphan_results(self, ep_id: str, keep: list[str]) -> int:
+        """Delete model_results rows whose model_id is not in `keep`.
+
+        Returns count of rows removed. Used after rediscover to drop stale
+        results for models the provider no longer lists.
+        """
+        with self._conn() as c:
+            if not keep:
+                cur = c.execute(
+                    "DELETE FROM model_results WHERE endpoint_id = ?", (ep_id,)
+                )
+                return cur.rowcount or 0
+            placeholders = ",".join("?" for _ in keep)
+            cur = c.execute(
+                f"DELETE FROM model_results WHERE endpoint_id = ? "
+                f"AND model_id NOT IN ({placeholders})",
+                (ep_id, *keep),
+            )
+            return cur.rowcount or 0
+
+    # --- app_settings (single-row K/V) -----------------------------
+
+    def get_setting(self, key: str) -> str | None:
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT value FROM app_settings WHERE key = ?", (key,)
+            ).fetchone()
+        return row["value"] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        now = _iso(datetime.now())
+        with self._conn() as c:
+            c.execute(
+                """INSERT INTO app_settings (key, value, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(key) DO UPDATE SET
+                       value = excluded.value,
+                       updated_at = excluded.updated_at""",
+                (key, value, now),
+            )
+
+    def delete_setting(self, key: str) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM app_settings WHERE key = ?", (key,))
 
     def list_model_results(self, ep_id: str) -> list[ModelResult]:
         with self._conn() as c:
