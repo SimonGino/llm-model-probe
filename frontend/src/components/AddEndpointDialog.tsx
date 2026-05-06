@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type {
@@ -196,7 +197,7 @@ export default function AddEndpointDialog(props: Props) {
   const submitLabelIdle = mode === "edit" ? "Save" : "Add endpoint";
   const submitLabelPending = mode === "edit" ? "保存中…" : "添加中…";
 
-  return (
+  return createPortal(
     <div
       onClick={onClose}
       style={{
@@ -479,7 +480,8 @@ export default function AddEndpointDialog(props: Props) {
           </div>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
