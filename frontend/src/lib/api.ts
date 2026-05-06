@@ -47,6 +47,11 @@ export const api = {
     req<void>("DELETE", `/api/endpoints/${encodeURIComponent(id)}`),
   retestEndpoint: (id: string) =>
     req<EndpointDetail>("POST", `/api/endpoints/${encodeURIComponent(id)}/retest`),
+  rediscoverEndpoint: (id: string) =>
+    req<EndpointDetail>(
+      "POST",
+      `/api/endpoints/${encodeURIComponent(id)}/rediscover`,
+    ),
   retestAll: () => req<{ retested: number }>("POST", "/api/retest-all"),
   parsePaste: (blob: string) =>
     req<PasteSuggestion>("POST", "/api/parse-paste", { blob }),

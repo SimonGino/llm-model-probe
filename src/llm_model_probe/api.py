@@ -465,6 +465,52 @@ def _apply_outcome(store: EndpointStore, ep: Endpoint, outcome) -> None:
         store.update_endpoint(ep.id, stale_since=None)
 
 
+@app.post(
+    "/api/endpoints/{name_or_id}/rediscover",
+    response_model=EndpointDetail,
+)
+def rediscover_endpoint(name_or_id: str) -> EndpointDetail:
+    """Re-fetch /v1/models for a discover-mode endpoint without probing.
+
+    Use case: user pasted a bad API key, fixed it, wants the model list
+    refreshed; probing happens via the separate `Test all` button.
+    """
+    store = _store()
+    ep = store.get_endpoint(name_or_id)
+    if ep is None:
+        raise HTTPException(status_code=404, detail="endpoint not found")
+    if ep.mode != "discover":
+        raise HTTPException(
+            status_code=400,
+            detail="endpoint is in 'specified' mode; rediscover not applicable",
+        )
+    from .providers import make_provider
+    settings = load_settings()
+
+    async def _discover() -> list[str]:
+        provider = make_provider(ep, settings.timeout_seconds)
+        try:
+            return await provider.list_models()
+        finally:
+            await provider.aclose()
+
+    try:
+        discovered = asyncio.run(_discover())
+        _persist_models(store, ep.id, discovered)
+        # Drop results for models that are no longer listed; otherwise their
+        # stale failed/available counts leak into the endpoint summary.
+        store.delete_orphan_results(ep.id, discovered)
+        store.set_list_error(ep.id, None)
+        store.update_endpoint(ep.id, stale_since=None)
+    except Exception as e:
+        err = f"{type(e).__name__}: {str(e)[:200]}"
+        store.set_list_error(ep.id, err)
+
+    fresh = store.get_endpoint(ep.id)
+    assert fresh is not None
+    return _detail(store, fresh)
+
+
 @app.post("/api/endpoints/{name_or_id}/retest", response_model=EndpointDetail)
 def retest_endpoint(name_or_id: str) -> EndpointDetail:
     store = _store()
