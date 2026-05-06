@@ -678,3 +678,119 @@ def test_endpoint_detail_includes_stale_since(
     body = r.json()
     assert "stale_since" in body
     assert body["stale_since"] is None
+
+
+def test_patch_endpoint_updates_note(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "ep1")
+    r = client.patch(
+        f"/api/endpoints/{ep.id}",
+        json={"note": "updated"},
+    )
+    assert r.status_code == 200
+    assert r.json()["note"] == "updated"
+    assert r.json()["stale_since"] is None  # note 改不算 core
+
+
+def test_patch_endpoint_base_url_triggers_stale(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "ep2")
+    r = client.patch(
+        f"/api/endpoints/{ep.id}",
+        json={"base_url": "https://api.other.com/v1"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["base_url"] == "https://api.other.com/v1"
+    assert body["stale_since"] is not None
+
+
+def test_patch_endpoint_sdk_triggers_stale(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "ep3")
+    r = client.patch(
+        f"/api/endpoints/{ep.id}",
+        json={"sdk": "anthropic"},
+    )
+    assert r.status_code == 200
+    assert r.json()["sdk"] == "anthropic"
+    assert r.json()["stale_since"] is not None
+
+
+def test_patch_endpoint_api_key_triggers_stale(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "ep4")
+    r = client.patch(
+        f"/api/endpoints/{ep.id}",
+        json={"api_key": "sk-newvalue"},
+    )
+    assert r.status_code == 200
+    assert r.json()["stale_since"] is not None
+    # detail still masks; verify via raw store
+    fresh = seed_store.get_endpoint(ep.id)
+    assert fresh is not None
+    assert fresh.api_key == "sk-newvalue"
+
+
+def test_patch_endpoint_normalizes_base_url(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "ep5")
+    r = client.patch(
+        f"/api/endpoints/{ep.id}",
+        json={"base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions"},
+    )
+    assert r.status_code == 200
+    assert r.json()["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
+
+
+def test_patch_endpoint_base_url_normalized_equals_existing_no_stale(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    """If user submits a "completions URL" that normalizes back to the
+    current base_url, no stale flag should fire."""
+    ep = _seed_endpoint(seed_store, "ep6")
+    # ep.base_url = "https://api.example.com/v1"
+    r = client.patch(
+        f"/api/endpoints/{ep.id}",
+        json={"base_url": "https://api.example.com/v1/chat/completions"},
+    )
+    assert r.status_code == 200
+    assert r.json()["base_url"] == "https://api.example.com/v1"
+    assert r.json()["stale_since"] is None
+
+
+def test_patch_endpoint_rename_to_existing_409(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    _seed_endpoint(seed_store, "alpha")
+    e2 = _seed_endpoint(seed_store, "bravo")
+    r = client.patch(f"/api/endpoints/{e2.id}", json={"name": "alpha"})
+    assert r.status_code == 409
+
+
+def test_patch_endpoint_rename_to_self_ok(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "samename")
+    r = client.patch(
+        f"/api/endpoints/{ep.id}", json={"name": "samename"}
+    )
+    assert r.status_code == 200
+
+
+def test_patch_endpoint_empty_body_noop(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "noop")
+    r = client.patch(f"/api/endpoints/{ep.id}", json={})
+    assert r.status_code == 200
+
+
+def test_patch_endpoint_404(client: TestClient) -> None:
+    r = client.patch("/api/endpoints/nope", json={"note": "x"})
+    assert r.status_code == 404

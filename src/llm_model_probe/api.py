@@ -136,6 +136,14 @@ class EndpointCreate(BaseModel):
     no_probe: bool = False
 
 
+class EndpointUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    sdk: SdkType | None = None
+    base_url: HttpUrl | None = None
+    api_key: str | None = Field(default=None, min_length=1)
+    note: str | None = None
+
+
 class PasteParseRequest(BaseModel):
     blob: str
 
@@ -349,6 +357,66 @@ def delete_endpoint(name_or_id: str) -> None:
     if ep is None:
         raise HTTPException(status_code=404, detail="endpoint not found")
     store.delete_endpoint(ep.id)
+
+
+@app.patch(
+    "/api/endpoints/{name_or_id}",
+    response_model=EndpointDetail,
+)
+def update_endpoint_route(
+    name_or_id: str, payload: EndpointUpdate
+) -> EndpointDetail:
+    store = _store()
+    existing = store.get_endpoint(name_or_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="endpoint not found")
+
+    new_name = payload.name
+    new_sdk = payload.sdk
+    new_base_url = (
+        normalize_base_url(str(payload.base_url))
+        if payload.base_url is not None
+        else None
+    )
+    new_api_key = payload.api_key
+    new_note = payload.note
+
+    # Name uniqueness — same name as self is fine
+    if new_name is not None and new_name != existing.name:
+        other = store.get_endpoint(new_name)
+        if other is not None and other.id != existing.id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"name '{new_name}' already in use",
+            )
+
+    update_kwargs: dict = {}
+    core_changed = False
+    if new_name is not None and new_name != existing.name:
+        update_kwargs["name"] = new_name
+    if new_sdk is not None and new_sdk != existing.sdk:
+        update_kwargs["sdk"] = new_sdk
+        core_changed = True
+    if new_base_url is not None and new_base_url != existing.base_url:
+        update_kwargs["base_url"] = new_base_url
+        core_changed = True
+    if new_api_key is not None and new_api_key != existing.api_key:
+        update_kwargs["api_key"] = new_api_key
+        core_changed = True
+    if new_note is not None and new_note != existing.note:
+        update_kwargs["note"] = new_note
+    if core_changed:
+        update_kwargs["stale_since"] = datetime.now()
+
+    if update_kwargs:
+        try:
+            store.update_endpoint(existing.id, **update_kwargs)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+
+    fresh = store.get_endpoint(existing.id)
+    assert fresh is not None
+    return _detail(store, fresh)
 
 
 class TagsUpdate(BaseModel):
