@@ -70,10 +70,13 @@ class OpenAIProvider:
             try:
                 resp = await self._client.chat.completions.create(**kwargs)
             except Exception as e:
-                # Reasoning models (o1/o3/gpt-5 family) may require
-                # max_completion_tokens instead of max_tokens.
+                # Reasoning models (o1/o3/gpt-5 family) need max_completion_tokens
+                # AND reasoning_effort=minimal — without the latter, the reasoning
+                # budget eats the small probe budget and content comes back empty.
                 if "max_completion_tokens" in str(e).lower():
-                    kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+                    kwargs.pop("max_tokens", None)
+                    kwargs["max_completion_tokens"] = max(32, max_tokens)
+                    kwargs["reasoning_effort"] = "minimal"
                     resp = await self._client.chat.completions.create(**kwargs)
                 else:
                     raise
