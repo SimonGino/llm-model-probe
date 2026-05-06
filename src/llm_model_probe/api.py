@@ -150,6 +150,11 @@ class PasteParseRequest(BaseModel):
     blob: str
 
 
+class ParserSettings(BaseModel):
+    endpoint_id: str | None
+    model_id: str | None
+
+
 class PasteParseResponse(BaseModel):
     suggested: dict
     confidence: float
@@ -628,6 +633,46 @@ def probe_model(name_or_id: str, req: ProbeModelRequest) -> ModelResultPublic:
         error_message=new_row.error_message,
         response_preview=new_row.response_preview,
         last_tested_at=new_row.last_tested_at,
+    )
+
+
+# ---------- parser settings ----------
+
+def _read_parser_settings(store: EndpointStore) -> ParserSettings:
+    """Read parser.endpoint_id + parser.model_id, auto-nulling on staleness."""
+    ep_id = store.get_setting("parser.endpoint_id")
+    m_id = store.get_setting("parser.model_id")
+    if not ep_id or not m_id:
+        return ParserSettings(endpoint_id=None, model_id=None)
+    ep = store.get_endpoint(ep_id)
+    if ep is None or m_id not in ep.models:
+        return ParserSettings(endpoint_id=None, model_id=None)
+    return ParserSettings(endpoint_id=ep_id, model_id=m_id)
+
+
+@app.get("/api/settings/parser", response_model=ParserSettings)
+def get_parser_settings() -> ParserSettings:
+    return _read_parser_settings(_store())
+
+
+@app.put("/api/settings/parser", response_model=ParserSettings)
+def put_parser_settings(payload: ParserSettings) -> ParserSettings:
+    store = _store()
+    if not payload.endpoint_id or not payload.model_id:
+        raise HTTPException(
+            status_code=400, detail="endpoint_id and model_id are required"
+        )
+    ep = store.get_endpoint(payload.endpoint_id)
+    if ep is None:
+        raise HTTPException(status_code=400, detail="endpoint not found")
+    if payload.model_id not in ep.models:
+        raise HTTPException(
+            status_code=400, detail="model_id not in endpoint.models"
+        )
+    store.set_setting("parser.endpoint_id", payload.endpoint_id)
+    store.set_setting("parser.model_id", payload.model_id)
+    return ParserSettings(
+        endpoint_id=payload.endpoint_id, model_id=payload.model_id
     )
 
 
