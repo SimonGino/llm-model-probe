@@ -26,7 +26,8 @@ type IconName =
   | "sun"
   | "moon"
   | "circle-half"
-  | "cpu";
+  | "cpu"
+  | "edit";
 
 export function Icon({
   name,
@@ -222,6 +223,13 @@ export function Icon({
           <rect x="4" y="4" width="16" height="16" rx="2" />
           <rect x="9" y="9" width="6" height="6" />
           <path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3" />
+        </svg>
+      );
+    case "edit":
+      return (
+        <svg {...common}>
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
         </svg>
       );
     default:

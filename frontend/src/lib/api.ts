@@ -2,6 +2,7 @@ import type {
   EndpointSummary,
   EndpointDetail,
   EndpointCreate,
+  EndpointUpdate,
   PasteSuggestion,
   ModelResultPublic,
 } from "./types";
@@ -54,6 +55,12 @@ export const api = {
       "POST",
       `/api/endpoints/${encodeURIComponent(id)}/probe-model`,
       { model },
+    ),
+  patchEndpoint: (idOrName: string, body: EndpointUpdate) =>
+    req<EndpointDetail>(
+      "PATCH",
+      `/api/endpoints/${encodeURIComponent(idOrName)}`,
+      body,
     ),
   setTags: (idOrName: string, tags: string[]) =>
     req<EndpointSummary>(

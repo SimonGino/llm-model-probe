@@ -283,3 +283,130 @@ def test_last_tested_at(store: EndpointStore) -> None:
     latest = store.last_tested_at(ep.id)
     assert latest is not None
     assert abs((latest - now).total_seconds()) < 1
+
+
+def test_stale_since_roundtrip(store: EndpointStore) -> None:
+    ep = _ep("stalecheck")
+    ep.stale_since = datetime(2026, 5, 6, 10, 0, 0)
+    store.insert_endpoint(ep)
+    got = store.get_endpoint("stalecheck")
+    assert got is not None
+    assert got.stale_since == datetime(2026, 5, 6, 10, 0, 0)
+
+
+def test_stale_since_default_none(store: EndpointStore) -> None:
+    ep = _ep("freshep")
+    store.insert_endpoint(ep)
+    got = store.get_endpoint("freshep")
+    assert got is not None
+    assert got.stale_since is None
+
+
+def test_migration_adds_stale_since_column(isolated_home: Path) -> None:
+    """Old DB without stale_since column - init_schema adds it via ALTER TABLE."""
+    import sqlite3
+
+    from llm_model_probe.paths import db_path, ensure_home
+
+    ensure_home()
+    path = db_path()
+    with sqlite3.connect(path) as c:
+        c.executescript(
+            """
+            CREATE TABLE endpoints (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                sdk TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                models_json TEXT NOT NULL DEFAULT '[]',
+                note TEXT NOT NULL DEFAULT '',
+                list_error TEXT,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE model_results (
+                endpoint_id TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                status TEXT NOT NULL,
+                latency_ms INTEGER,
+                error_type TEXT,
+                error_message TEXT,
+                response_preview TEXT,
+                last_tested_at TEXT NOT NULL,
+                PRIMARY KEY (endpoint_id, model_id),
+                FOREIGN KEY (endpoint_id) REFERENCES endpoints(id) ON DELETE CASCADE
+            );
+            INSERT INTO endpoints
+            (id, name, sdk, base_url, api_key, mode, created_at, updated_at)
+            VALUES
+            ('ep_legacy', 'legacy', 'openai', 'https://x/v1', 'sk-x', 'specified',
+             '2026-05-01T00:00:00', '2026-05-01T00:00:00');
+            """
+        )
+        c.commit()
+
+    s = EndpointStore()
+    s.init_schema()
+    legacy = s.get_endpoint("legacy")
+    assert legacy is not None
+    assert legacy.stale_since is None
+
+
+def test_migration_stale_since_idempotent(isolated_home: Path) -> None:
+    """Running init_schema twice on a post-migration DB must not raise."""
+    s1 = EndpointStore()
+    s1.init_schema()
+    s2 = EndpointStore()
+    s2.init_schema()  # second run: must not raise
+
+
+def test_update_endpoint_partial(store: EndpointStore) -> None:
+    ep = _ep("editme")
+    store.insert_endpoint(ep)
+    store.update_endpoint(ep.id, name="renamed", note="new note")
+    got = store.get_endpoint(ep.id)
+    assert got is not None
+    assert got.name == "renamed"
+    assert got.note == "new note"
+    assert got.base_url == "https://api.example.com/v1"  # untouched
+
+
+def test_update_endpoint_no_fields_is_noop(store: EndpointStore) -> None:
+    ep = _ep("noop")
+    store.insert_endpoint(ep)
+    before = store.get_endpoint(ep.id)
+    store.update_endpoint(ep.id)  # no kwargs
+    after = store.get_endpoint(ep.id)
+    assert before == after  # updated_at didn't bump
+
+
+def test_update_endpoint_set_stale_since(store: EndpointStore) -> None:
+    ep = _ep("stalebump")
+    store.insert_endpoint(ep)
+    when = datetime(2026, 5, 6, 10, 0, 0)
+    store.update_endpoint(ep.id, stale_since=when)
+    got = store.get_endpoint(ep.id)
+    assert got is not None
+    assert got.stale_since == when
+
+
+def test_update_endpoint_clear_stale_since(store: EndpointStore) -> None:
+    ep = _ep("staleclear")
+    ep.stale_since = datetime(2026, 5, 6, 10, 0, 0)
+    store.insert_endpoint(ep)
+    store.update_endpoint(ep.id, stale_since=None)
+    got = store.get_endpoint(ep.id)
+    assert got is not None
+    assert got.stale_since is None
+
+
+def test_update_endpoint_name_conflict(store: EndpointStore) -> None:
+    a = _ep("alpha"); b = _ep("beta")
+    store.insert_endpoint(a)
+    store.insert_endpoint(b)
+    with pytest.raises(ValueError, match="already exists"):
+        store.update_endpoint(b.id, name="alpha")

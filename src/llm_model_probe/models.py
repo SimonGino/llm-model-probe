@@ -28,6 +28,7 @@ class Endpoint:
     note: str = ""
     list_error: str | None = None
     tags: list[str] = field(default_factory=list)
+    stale_since: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

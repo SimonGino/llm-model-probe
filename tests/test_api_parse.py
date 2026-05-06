@@ -54,3 +54,26 @@ def test_parse_unrecognized(isolated_home: Path) -> None:
     assert body["parser"] == "none"
     assert body["confidence"] == 0
     assert body["suggested"] == {}
+
+
+def test_parse_curl_zhipu_v4(isolated_home: Path) -> None:
+    """Regression: non-/v1 URL must not be sliced down to host-only.
+
+    Was a bug in _parse_curl's old `if "/v1" in url ... else: host-only` branch.
+    """
+    blob = (
+        "curl https://open.bigmodel.cn/api/paas/v4/chat/completions "
+        "-H 'Authorization: Bearer 943b...REjJ' "
+        "-H 'Content-Type: application/json'"
+    )
+    r = _client(isolated_home).post(
+        "/api/parse-paste", json={"blob": blob}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["parser"] == "curl"
+    assert (
+        body["suggested"]["base_url"]
+        == "https://open.bigmodel.cn/api/paas/v4"
+    )
+    assert body["suggested"]["api_key"] == "943b...REjJ"

@@ -626,3 +626,229 @@ def test_detail_still_masks_api_key(
     assert "api_key" not in detail_json
     assert detail_json["api_key_masked"].startswith("sk-M")
     assert detail_json["api_key_masked"].endswith("1234")
+
+
+def test_create_endpoint_normalizes_base_url(
+    client: TestClient,
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /api/endpoints strips known completion-endpoint suffixes."""
+    # Stub list_models so create doesn't hit the network
+    from llm_model_probe.providers import OpenAIProvider
+
+    async def _stub_list_models(self):  # noqa: ARG001
+        return ["gpt-4"]
+
+    monkeypatch.setattr(OpenAIProvider, "list_models", _stub_list_models)
+
+    r = client.post(
+        "/api/endpoints",
+        json={
+            "name": "zhipu",
+            "sdk": "openai",
+            "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            "api_key": "k",
+            "no_probe": True,
+        },
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
+
+
+def test_endpoint_summary_includes_stale_since(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    """A freshly seeded endpoint has stale_since=None and the API surfaces it."""
+    _seed_endpoint(seed_store, "alpha")
+    r = client.get("/api/endpoints")
+    assert r.status_code == 200
+    item = r.json()[0]
+    assert "stale_since" in item
+    assert item["stale_since"] is None
+
+
+def test_endpoint_detail_includes_stale_since(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    _seed_endpoint(seed_store, "beta")
+    r = client.get("/api/endpoints/beta")
+    assert r.status_code == 200
+    body = r.json()
+    assert "stale_since" in body
+    assert body["stale_since"] is None
+
+
+def test_patch_endpoint_updates_note(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "ep1")
+    r = client.patch(
+        f"/api/endpoints/{ep.id}",
+        json={"note": "updated"},
+    )
+    assert r.status_code == 200
+    assert r.json()["note"] == "updated"
+    assert r.json()["stale_since"] is None  # note 改不算 core
+
+
+def test_patch_endpoint_base_url_triggers_stale(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "ep2")
+    r = client.patch(
+        f"/api/endpoints/{ep.id}",
+        json={"base_url": "https://api.other.com/v1"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["base_url"] == "https://api.other.com/v1"
+    assert body["stale_since"] is not None
+
+
+def test_patch_endpoint_sdk_triggers_stale(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "ep3")
+    r = client.patch(
+        f"/api/endpoints/{ep.id}",
+        json={"sdk": "anthropic"},
+    )
+    assert r.status_code == 200
+    assert r.json()["sdk"] == "anthropic"
+    assert r.json()["stale_since"] is not None
+
+
+def test_patch_endpoint_api_key_triggers_stale(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "ep4")
+    r = client.patch(
+        f"/api/endpoints/{ep.id}",
+        json={"api_key": "sk-newvalue"},
+    )
+    assert r.status_code == 200
+    assert r.json()["stale_since"] is not None
+    # detail still masks; verify via raw store
+    fresh = seed_store.get_endpoint(ep.id)
+    assert fresh is not None
+    assert fresh.api_key == "sk-newvalue"
+
+
+def test_patch_endpoint_normalizes_base_url(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "ep5")
+    r = client.patch(
+        f"/api/endpoints/{ep.id}",
+        json={"base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions"},
+    )
+    assert r.status_code == 200
+    assert r.json()["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
+
+
+def test_patch_endpoint_base_url_normalized_equals_existing_no_stale(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    """If user submits a "completions URL" that normalizes back to the
+    current base_url, no stale flag should fire."""
+    ep = _seed_endpoint(seed_store, "ep6")
+    # ep.base_url = "https://api.example.com/v1"
+    r = client.patch(
+        f"/api/endpoints/{ep.id}",
+        json={"base_url": "https://api.example.com/v1/chat/completions"},
+    )
+    assert r.status_code == 200
+    assert r.json()["base_url"] == "https://api.example.com/v1"
+    assert r.json()["stale_since"] is None
+
+
+def test_patch_endpoint_rename_to_existing_409(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    _seed_endpoint(seed_store, "alpha")
+    e2 = _seed_endpoint(seed_store, "bravo")
+    r = client.patch(f"/api/endpoints/{e2.id}", json={"name": "alpha"})
+    assert r.status_code == 409
+
+
+def test_patch_endpoint_rename_to_self_ok(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "samename")
+    r = client.patch(
+        f"/api/endpoints/{ep.id}", json={"name": "samename"}
+    )
+    assert r.status_code == 200
+
+
+def test_patch_endpoint_empty_body_noop(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    ep = _seed_endpoint(seed_store, "noop")
+    r = client.patch(f"/api/endpoints/{ep.id}", json={})
+    assert r.status_code == 200
+
+
+def test_patch_endpoint_404(client: TestClient) -> None:
+    r = client.patch("/api/endpoints/nope", json={"note": "x"})
+    assert r.status_code == 404
+
+
+def test_retest_clears_stale_since(
+    client: TestClient,
+    seed_store: EndpointStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After PATCH bumps stale_since, retest should clear it."""
+    ep = _seed_endpoint(seed_store, "stale-retest")
+
+    # Bump stale via PATCH
+    r = client.patch(
+        f"/api/endpoints/{ep.id}", json={"base_url": "https://other.com/v1"}
+    )
+    assert r.status_code == 200
+    assert r.json()["stale_since"] is not None
+
+    # Stub probe so retest doesn't hit network. ProbeOutcome's signature is
+    # (list_error, new_results, skipped) — see src/llm_model_probe/probe.py:41.
+    from llm_model_probe.probe import ProbeRunner, ProbeOutcome
+    async def _stub_probe(self, ep, *, allow_partial=False):  # noqa: ARG001
+        return ProbeOutcome(list_error=None, new_results=[], skipped=[])
+    monkeypatch.setattr(ProbeRunner, "probe_endpoint", _stub_probe)
+
+    r2 = client.post(f"/api/endpoints/{ep.id}/retest")
+    assert r2.status_code == 200
+    assert r2.json()["stale_since"] is None
+
+
+def test_retest_keeps_stale_when_list_error(
+    client: TestClient,
+    seed_store: EndpointStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If retest fails at list_models() level, stale_since must persist —
+    the stored model results are still from the previous config."""
+    ep = _seed_endpoint(seed_store, "stale-failed-retest")
+
+    r = client.patch(
+        f"/api/endpoints/{ep.id}", json={"base_url": "https://broken.example/v1"}
+    )
+    assert r.status_code == 200
+    assert r.json()["stale_since"] is not None
+
+    from llm_model_probe.probe import ProbeRunner, ProbeOutcome
+    async def _stub_failed_probe(self, ep, *, allow_partial=False):  # noqa: ARG001
+        return ProbeOutcome(
+            list_error="ConnectError: name resolution failed",
+            new_results=None,
+            skipped=[],
+        )
+    monkeypatch.setattr(ProbeRunner, "probe_endpoint", _stub_failed_probe)
+
+    r2 = client.post(f"/api/endpoints/{ep.id}/retest")
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["list_error"] == "ConnectError: name resolution failed"
+    assert body["stale_since"] is not None  # still stale — failed retest didn't refresh

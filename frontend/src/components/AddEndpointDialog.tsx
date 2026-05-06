@@ -1,43 +1,86 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { EndpointCreate, PasteSuggestion } from "@/lib/types";
+import type {
+  EndpointCreate,
+  EndpointDetail,
+  EndpointUpdate,
+  PasteSuggestion,
+} from "@/lib/types";
 import { parseLocally } from "@/lib/parsePaste";
 import { Icon } from "@/components/atoms";
+import { normalizeBaseUrl } from "@/lib/url-normalize";
 
-const empty: EndpointCreate = {
+type FormState = {
+  name: string;
+  sdk: "openai" | "anthropic";
+  base_url: string;
+  api_key: string;
+  note: string;
+};
+
+const empty: FormState = {
   name: "",
   sdk: "openai",
   base_url: "",
   api_key: "",
-  models: [],
   note: "",
 };
 
-export default function AddEndpointDialog({
-  open,
-  onClose,
-  onCreated,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onCreated: (id: string) => void;
-}) {
+type Props =
+  | {
+      mode: "add";
+      open: boolean;
+      onClose: () => void;
+      onSuccess: (data: EndpointDetail) => void;
+    }
+  | {
+      mode: "edit";
+      open: boolean;
+      onClose: () => void;
+      onSuccess: (data: EndpointDetail) => void;
+      initial: EndpointDetail;
+    };
+
+export default function AddEndpointDialog(props: Props) {
+  const { mode, open, onClose, onSuccess } = props;
+  const initial = mode === "edit" ? props.initial : null;
   const qc = useQueryClient();
-  const [form, setForm] = useState<EndpointCreate>(empty);
+
+  const [form, setForm] = useState<FormState>(() =>
+    initial
+      ? {
+          name: initial.name,
+          sdk: initial.sdk,
+          base_url: initial.base_url,
+          api_key: "",
+          note: initial.note ?? "",
+        }
+      : empty,
+  );
   const [modelsText, setModelsText] = useState("");
   const [paste, setPaste] = useState("");
   const [suggestion, setSuggestion] = useState<PasteSuggestion | null>(null);
   const [parsing, setParsing] = useState(false);
 
+  // Reset form whenever the dialog reopens (or switches between endpoints in edit mode).
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    if (initial) {
+      setForm({
+        name: initial.name,
+        sdk: initial.sdk,
+        base_url: initial.base_url,
+        api_key: "",
+        note: initial.note ?? "",
+      });
+    } else {
       setForm(empty);
       setModelsText("");
-      setPaste("");
-      setSuggestion(null);
     }
-  }, [open]);
+    setPaste("");
+    setSuggestion(null);
+  }, [open, initial?.id]);
 
   const create = useMutation({
     mutationFn: (payload: EndpointCreate) =>
@@ -45,11 +88,23 @@ export default function AddEndpointDialog({
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["endpoints"] });
       onClose();
-      onCreated(data.id);
+      onSuccess(data);
     },
   });
 
-  function update<K extends keyof EndpointCreate>(k: K, v: EndpointCreate[K]) {
+  const patch = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: EndpointUpdate }) =>
+      api.patchEndpoint(id, body),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["endpoints"] });
+      qc.invalidateQueries({ queryKey: ["endpoint", data.id] });
+      qc.invalidateQueries({ queryKey: ["endpoint", data.name] });
+      onClose();
+      onSuccess(data);
+    },
+  });
+
+  function update<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
@@ -98,17 +153,48 @@ export default function AddEndpointDialog({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    const models = modelsText
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    create.mutate({ ...form, models });
+    if (mode === "add") {
+      const models = modelsText
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      create.mutate({ ...form, models });
+    } else {
+      const initEdit = initial!;
+      const body: EndpointUpdate = {};
+      if (form.name !== initEdit.name) body.name = form.name;
+      if (form.sdk !== initEdit.sdk) body.sdk = form.sdk;
+      if (form.base_url !== initEdit.base_url) body.base_url = form.base_url;
+      if (form.api_key.trim()) body.api_key = form.api_key;
+      if (form.note !== (initEdit.note ?? "")) body.note = form.note;
+      patch.mutate({ id: initEdit.id, body });
+    }
   }
 
   if (!open) return null;
   const filledFields = suggestion
     ? Object.values(suggestion.suggested).filter(Boolean).length
     : 0;
+  const baseUrlSuggestion = (() => {
+    const trimmed = form.base_url.trim();
+    if (!trimmed) return null;
+    const normalized = normalizeBaseUrl(trimmed);
+    return normalized.length > 0 && normalized !== trimmed ? normalized : null;
+  })();
+  const pending = create.isPending || patch.isPending;
+  const error = create.error || patch.error;
+  const submittable =
+    !pending &&
+    form.name.trim().length > 0 &&
+    form.base_url.trim().length > 0 &&
+    (mode === "edit" || form.api_key.trim().length > 0);
+  const titleText = mode === "edit" ? "编辑端点" : "注册端点";
+  const subtitleText =
+    mode === "edit"
+      ? "修改 base URL / API key / 备注；保存后会标记为待重测。"
+      : "注册后可立即发现模型，再选择性地探测可用性。";
+  const submitLabelIdle = mode === "edit" ? "Save" : "Add endpoint";
+  const submitLabelPending = mode === "edit" ? "保存中…" : "添加中…";
 
   return (
     <div
@@ -157,12 +243,12 @@ export default function AddEndpointDialog({
                 letterSpacing: -0.2,
               }}
             >
-              注册端点
+              {titleText}
             </h2>
             <div
               style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}
             >
-              注册后可立即发现模型，再选择性地探测可用性。
+              {subtitleText}
             </div>
           </div>
           <button
@@ -175,63 +261,70 @@ export default function AddEndpointDialog({
         </div>
 
         <div style={{ padding: 20, display: "grid", gap: 14 }}>
-          <div>
-            <Label>
-              Smart paste{" "}
-              <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>
-                · JSON / curl / .env
-              </span>
-            </Label>
-            <textarea
-              className="input mono"
-              placeholder="粘贴 curl 命令 / JSON / dotenv 块 — 自动填表"
-              value={paste}
-              onChange={(e) => setPaste(e.target.value)}
-              onBlur={() => reparse(paste)}
-              style={{
-                height: 70,
-                padding: 10,
-                fontSize: 11,
-                resize: "vertical",
-                lineHeight: 1.5,
-              }}
-            />
-            {suggestion && suggestion.parser !== "none" && (
-              <div
-                style={{
-                  marginTop: 6,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontSize: 12,
-                }}
-              >
-                <span className="badge badge-info">
-                  {suggestion.parser}
-                  {parsing && "…"}
-                </span>
-                <span style={{ color: "var(--text-muted)" }}>
-                  识别到 {filledFields} 个字段
-                </span>
-                <button type="button" className="btn btn-sm" onClick={applyPaste}>
-                  应用
-                </button>
+          {mode === "add" && (
+            <>
+              <div>
+                <Label>
+                  Smart paste{" "}
+                  <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>
+                    · JSON / curl / .env
+                  </span>
+                </Label>
+                <textarea
+                  className="input mono"
+                  placeholder="粘贴 curl 命令 / JSON / dotenv 块 — 自动填表"
+                  value={paste}
+                  onChange={(e) => setPaste(e.target.value)}
+                  onBlur={() => reparse(paste)}
+                  style={{
+                    height: 70,
+                    padding: 10,
+                    fontSize: 11,
+                    resize: "vertical",
+                    lineHeight: 1.5,
+                  }}
+                />
+                {suggestion && suggestion.parser !== "none" && (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      fontSize: 12,
+                    }}
+                  >
+                    <span className="badge badge-info">
+                      {suggestion.parser}
+                      {parsing && "…"}
+                    </span>
+                    <span style={{ color: "var(--text-muted)" }}>
+                      识别到 {filledFields} 个字段
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={applyPaste}
+                    >
+                      应用
+                    </button>
+                  </div>
+                )}
+                {suggestion && suggestion.parser === "none" && (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      fontSize: 12,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    无法识别格式 — 请手动填写下方表单。
+                  </div>
+                )}
               </div>
-            )}
-            {suggestion && suggestion.parser === "none" && (
-              <div
-                style={{
-                  marginTop: 6,
-                  fontSize: 12,
-                  color: "var(--text-muted)",
-                }}
-              >
-                无法识别格式 — 请手动填写下方表单。
-              </div>
-            )}
-          </div>
-
-          <Divider />
+              <Divider />
+            </>
+          )}
 
           <Field label="Name" required>
             <input
@@ -254,7 +347,7 @@ export default function AddEndpointDialog({
                 className="select"
                 value={form.sdk}
                 onChange={(e) =>
-                  update("sdk", e.target.value as EndpointCreate["sdk"])
+                  update("sdk", e.target.value as FormState["sdk"])
                 }
               >
                 <option value="openai">openai</option>
@@ -269,29 +362,71 @@ export default function AddEndpointDialog({
                 placeholder="https://api.example.com/v1"
                 style={{ fontSize: 12 }}
               />
+              {baseUrlSuggestion && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span>
+                    检测到完整接口 URL，建议改成{" "}
+                    <code
+                      className="mono"
+                      style={{
+                        background: "var(--bg-sunk)",
+                        padding: "1px 4px",
+                        borderRadius: 3,
+                      }}
+                    >
+                      {baseUrlSuggestion}
+                    </code>
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    title={`使用建议的 URL: ${baseUrlSuggestion}`}
+                    aria-label={`使用建议的 URL: ${baseUrlSuggestion}`}
+                    onClick={() => update("base_url", baseUrlSuggestion)}
+                  >
+                    采用
+                  </button>
+                </div>
+              )}
             </Field>
           </div>
 
-          <Field label="API key" required>
+          <Field
+            label={mode === "edit" ? "API key" : "API key"}
+            required={mode === "add"}
+            hint={mode === "edit" ? "留空保持不变" : undefined}
+          >
             <input
               className="input mono"
               type="password"
               value={form.api_key}
               onChange={(e) => update("api_key", e.target.value)}
-              placeholder="sk-…"
+              placeholder={mode === "edit" ? "••••••••" : "sk-…"}
               style={{ fontSize: 12 }}
             />
           </Field>
 
-          <Field label="Models" hint="留空触发 discover；多个用逗号分隔">
-            <input
-              className="input mono"
-              value={modelsText}
-              onChange={(e) => setModelsText(e.target.value)}
-              placeholder="gpt-4o, gpt-4o-mini"
-              style={{ fontSize: 12 }}
-            />
-          </Field>
+          {mode === "add" && (
+            <Field label="Models" hint="留空触发 discover；多个用逗号分隔">
+              <input
+                className="input mono"
+                value={modelsText}
+                onChange={(e) => setModelsText(e.target.value)}
+                placeholder="gpt-4o, gpt-4o-mini"
+                style={{ fontSize: 12 }}
+              />
+            </Field>
+          )}
 
           <Field label="Note">
             <input
@@ -302,9 +437,9 @@ export default function AddEndpointDialog({
             />
           </Field>
 
-          {create.error && (
+          {error && (
             <div className="badge badge-bad" style={{ width: "100%" }}>
-              {String(create.error)}
+              {String(error)}
             </div>
           )}
         </div>
@@ -337,14 +472,9 @@ export default function AddEndpointDialog({
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={
-                !form.name ||
-                !form.base_url ||
-                !form.api_key ||
-                create.isPending
-              }
+              disabled={!submittable}
             >
-              {create.isPending ? "添加中…" : "Add endpoint"}
+              {pending ? submitLabelPending : submitLabelIdle}
             </button>
           </div>
         </div>

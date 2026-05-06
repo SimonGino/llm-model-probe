@@ -10,6 +10,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl
 
+_STRIP_SUFFIXES = (
+    "/v1/messages",
+    "/chat/completions",
+    "/messages",
+    "/completions",
+)
+
+_CORE_FIELDS: frozenset[str] = frozenset({"sdk", "base_url", "api_key"})
+
+
+def normalize_base_url(url: str) -> str:
+    """Strip well-known completion-endpoint suffixes from a base URL.
+
+    Iterates _STRIP_SUFFIXES which is ordered so that longer/more-specific
+    suffixes come first — first match wins.
+    """
+    s = url.rstrip("/")
+    lowered = s.lower()
+    for suffix in _STRIP_SUFFIXES:
+        if lowered.endswith(suffix):
+            s = s[: -len(suffix)]
+            break
+    return s.rstrip("/")
+
+
 DEV_MODE = os.environ.get("LLM_MODEL_PROBE_DEV") == "1"
 
 app = FastAPI(title="llm-model-probe")
@@ -79,6 +104,7 @@ class EndpointSummary(BaseModel):
     total_models: int
     tags: list[str]
     last_tested_at: datetime | None
+    stale_since: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -110,6 +136,14 @@ class EndpointCreate(BaseModel):
     note: str = ""
     tags: list[str] = []
     no_probe: bool = False
+
+
+class EndpointUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    sdk: SdkType | None = None
+    base_url: HttpUrl | None = None
+    api_key: str | None = Field(default=None, min_length=1)
+    note: str | None = None
 
 
 class PasteParseRequest(BaseModel):
@@ -164,6 +198,7 @@ def _summary(store: EndpointStore, ep: Endpoint) -> EndpointSummary:
         total_models=len(ep.models),
         tags=ep.tags,
         last_tested_at=store.last_tested_at(ep.id),
+        stale_since=ep.stale_since,
         created_at=ep.created_at or datetime.now(),
         updated_at=ep.updated_at or datetime.now(),
     )
@@ -263,11 +298,12 @@ def _persist_models(store: EndpointStore, ep_id: str, models: list[str]) -> None
 def create_endpoint(payload: EndpointCreate) -> EndpointDetail:
     store = _store()
     mode = "specified" if payload.models else "discover"
+    base_url = normalize_base_url(str(payload.base_url))
     ep = Endpoint(
         id=new_endpoint_id(),
         name=payload.name,
         sdk=payload.sdk,
-        base_url=str(payload.base_url).rstrip("/"),
+        base_url=base_url,
         api_key=payload.api_key,
         mode=mode,  # type: ignore[arg-type]
         models=list(payload.models),
@@ -325,6 +361,63 @@ def delete_endpoint(name_or_id: str) -> None:
     store.delete_endpoint(ep.id)
 
 
+@app.patch(
+    "/api/endpoints/{name_or_id}",
+    response_model=EndpointDetail,
+)
+def update_endpoint_route(
+    name_or_id: str, payload: EndpointUpdate
+) -> EndpointDetail:
+    store = _store()
+    existing = store.get_endpoint(name_or_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="endpoint not found")
+
+    new_name = payload.name
+    new_sdk = payload.sdk
+    new_base_url = (
+        normalize_base_url(str(payload.base_url))
+        if payload.base_url is not None
+        else None
+    )
+    new_api_key = payload.api_key
+    new_note = payload.note
+
+    update_kwargs: dict[str, object] = {}
+
+    # Name uniqueness — same name as self is fine
+    if new_name is not None and new_name != existing.name:
+        other = store.get_endpoint(new_name)
+        if other is not None and other.id != existing.id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"name '{new_name}' already in use",
+            )
+        update_kwargs["name"] = new_name
+
+    if new_sdk is not None and new_sdk != existing.sdk:
+        update_kwargs["sdk"] = new_sdk
+    if new_base_url is not None and new_base_url != existing.base_url:
+        update_kwargs["base_url"] = new_base_url
+    if new_api_key is not None and new_api_key != existing.api_key:
+        update_kwargs["api_key"] = new_api_key
+    if new_note is not None and new_note != existing.note:
+        update_kwargs["note"] = new_note
+
+    if update_kwargs.keys() & _CORE_FIELDS:
+        update_kwargs["stale_since"] = datetime.now()
+
+    if update_kwargs:
+        try:
+            store.update_endpoint(existing.id, **update_kwargs)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+
+    fresh = store.get_endpoint(existing.id)
+    assert fresh is not None
+    return _detail(store, fresh)
+
+
 class TagsUpdate(BaseModel):
     tags: list[str]
 
@@ -368,6 +461,8 @@ def _apply_outcome(store: EndpointStore, ep: Endpoint, outcome) -> None:
         store.set_list_error(ep.id, None)
     if outcome.new_results is not None:
         store.replace_model_results(ep.id, outcome.new_results)
+    if not outcome.list_error:
+        store.update_endpoint(ep.id, stale_since=None)
 
 
 @app.post("/api/endpoints/{name_or_id}/retest", response_model=EndpointDetail)
@@ -539,12 +634,7 @@ def _parse_curl(blob: str) -> dict | None:
     url_match = _URL.search(blob)
     if url_match:
         url = url_match.group(0).rstrip(",;")
-        if "/v1" in url:
-            url = url.split("/v1", 1)[0] + "/v1"
-        else:
-            from urllib.parse import urlsplit
-            sp = urlsplit(url)
-            url = f"{sp.scheme}://{sp.netloc}"
+        url = normalize_base_url(url)
         out["base_url"] = url
         out["sdk"] = _guess_sdk(url)
     return out or None

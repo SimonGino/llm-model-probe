@@ -11,6 +11,15 @@ from typing import Iterator
 from .models import Endpoint, ModelResult
 from .paths import db_path, ensure_home
 
+class _Unset:
+    """Sentinel type for update_endpoint: field not supplied (vs explicit None)."""
+
+    def __repr__(self) -> str:
+        return "<UNSET>"
+
+
+_UNSET: _Unset = _Unset()
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS endpoints (
     id          TEXT PRIMARY KEY,
@@ -23,6 +32,7 @@ CREATE TABLE IF NOT EXISTS endpoints (
     note        TEXT NOT NULL DEFAULT '',
     list_error  TEXT,
     tags_json   TEXT NOT NULL DEFAULT '[]',
+    stale_since TEXT,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
@@ -74,6 +84,7 @@ class EndpointStore:
         with self._conn() as c:
             c.executescript(SCHEMA)
             self._migrate_tags(c)
+            self._migrate_stale_since(c)
             self._backfill_models_from_results(c)
         try:
             self._path.chmod(0o600)
@@ -88,6 +99,15 @@ class EndpointStore:
             c.execute(
                 "ALTER TABLE endpoints "
                 "ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"
+            )
+
+    @staticmethod
+    def _migrate_stale_since(c: sqlite3.Connection) -> None:
+        """Old DB without stale_since column - idempotently add it."""
+        cols = {row["name"] for row in c.execute("PRAGMA table_info(endpoints)")}
+        if "stale_since" not in cols:
+            c.execute(
+                "ALTER TABLE endpoints ADD COLUMN stale_since TEXT"
             )
 
     @staticmethod
@@ -128,12 +148,14 @@ class EndpointStore:
                 c.execute(
                     """INSERT INTO endpoints
                        (id, name, sdk, base_url, api_key, mode, models_json,
-                        note, list_error, tags_json, created_at, updated_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        note, list_error, tags_json, stale_since,
+                        created_at, updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         ep.id, ep.name, ep.sdk, ep.base_url, ep.api_key,
                         ep.mode, json.dumps(ep.models), ep.note,
                         ep.list_error, json.dumps(ep.tags),
+                        _iso(ep.stale_since),
                         _iso(ep.created_at), _iso(ep.updated_at),
                     ),
                 )
@@ -172,6 +194,57 @@ class EndpointStore:
                 "UPDATE endpoints SET tags_json = ?, updated_at = ? WHERE id = ?",
                 (json.dumps(tags), _iso(datetime.now()), ep_id),
             )
+
+    def update_endpoint(
+        self,
+        ep_id: str,
+        *,
+        name: str | None = None,
+        sdk: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        note: str | None = None,
+        stale_since: datetime | None | _Unset = _UNSET,
+    ) -> None:
+        """Partial update.
+
+        For str fields, None means "leave unchanged".
+        For stale_since, the default sentinel means "leave unchanged"; pass
+        a datetime to set, or None to explicitly clear.
+        """
+        sets: list[str] = []
+        params: list = []
+        if name is not None:
+            sets.append("name = ?")
+            params.append(name)
+        if sdk is not None:
+            sets.append("sdk = ?")
+            params.append(sdk)
+        if base_url is not None:
+            sets.append("base_url = ?")
+            params.append(base_url)
+        if api_key is not None:
+            sets.append("api_key = ?")
+            params.append(api_key)
+        if note is not None:
+            sets.append("note = ?")
+            params.append(note)
+        if stale_since is not _UNSET:
+            sets.append("stale_since = ?")
+            params.append(_iso(stale_since) if stale_since is not None else None)
+        if not sets:
+            return
+        sets.append("updated_at = ?")
+        params.append(_iso(datetime.now()))
+        params.append(ep_id)
+        sql = f"UPDATE endpoints SET {', '.join(sets)} WHERE id = ?"
+        try:
+            with self._conn() as c:
+                c.execute(sql, params)
+        except sqlite3.IntegrityError as e:
+            raise ValueError(
+                f"endpoint name '{name}' already exists"
+            ) from e
 
     # --- model_results ---------------------------------------------
 
@@ -255,6 +328,7 @@ class EndpointStore:
             note=row["note"],
             list_error=row["list_error"],
             tags=json.loads(row["tags_json"]),
+            stale_since=_from_iso(row["stale_since"]),
             created_at=_from_iso(row["created_at"]),
             updated_at=_from_iso(row["updated_at"]),
         )
