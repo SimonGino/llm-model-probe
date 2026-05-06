@@ -461,6 +461,7 @@ def _apply_outcome(store: EndpointStore, ep: Endpoint, outcome) -> None:
         store.set_list_error(ep.id, None)
     if outcome.new_results is not None:
         store.replace_model_results(ep.id, outcome.new_results)
+    store.update_endpoint(ep.id, stale_since=None)
 
 
 @app.post("/api/endpoints/{name_or_id}/retest", response_model=EndpointDetail)

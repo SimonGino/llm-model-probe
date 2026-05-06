@@ -794,3 +794,30 @@ def test_patch_endpoint_empty_body_noop(
 def test_patch_endpoint_404(client: TestClient) -> None:
     r = client.patch("/api/endpoints/nope", json={"note": "x"})
     assert r.status_code == 404
+
+
+def test_retest_clears_stale_since(
+    client: TestClient,
+    seed_store: EndpointStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After PATCH bumps stale_since, retest should clear it."""
+    ep = _seed_endpoint(seed_store, "stale-retest")
+
+    # Bump stale via PATCH
+    r = client.patch(
+        f"/api/endpoints/{ep.id}", json={"base_url": "https://other.com/v1"}
+    )
+    assert r.status_code == 200
+    assert r.json()["stale_since"] is not None
+
+    # Stub probe so retest doesn't hit network. ProbeOutcome's signature is
+    # (list_error, new_results, skipped) — see src/llm_model_probe/probe.py:41.
+    from llm_model_probe.probe import ProbeRunner, ProbeOutcome
+    async def _stub_probe(self, ep, *, allow_partial=False):  # noqa: ARG001
+        return ProbeOutcome(list_error=None, new_results=[], skipped=[])
+    monkeypatch.setattr(ProbeRunner, "probe_endpoint", _stub_probe)
+
+    r2 = client.post(f"/api/endpoints/{ep.id}/retest")
+    assert r2.status_code == 200
+    assert r2.json()["stale_since"] is None
