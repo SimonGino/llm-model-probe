@@ -123,6 +123,7 @@ class OpenAIProvider:
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
+            "temperature": 0,
             "response_format": {"type": "json_object"},
         }
         try:
@@ -206,6 +207,7 @@ class AnthropicProvider:
         resp = await self._client.messages.create(
             model=model,
             max_tokens=max_tokens,
+            temperature=0,
             messages=[{"role": "user", "content": prompt}],
         )
         elapsed = int((time.perf_counter() - start) * 1000)
