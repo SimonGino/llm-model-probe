@@ -12,6 +12,9 @@ import TagEditor from "./TagEditor";
 import ApiKeyReveal from "./ApiKeyReveal";
 import { relative } from "@/lib/format";
 import type { EndpointDetail, ModelResultPublic } from "@/lib/types";
+import { ProviderIcon, detectProvider } from "@/lib/provider";
+
+type SortMode = "default" | "provider" | "name";
 
 export default function EndpointDetailPane({
   idOrName,
@@ -28,6 +31,7 @@ export default function EndpointDetailPane({
   const qc = useQueryClient();
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [modelSearch, setModelSearch] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>("default");
 
   useEffect(() => {
     if (!detail.data) return;
@@ -94,19 +98,41 @@ export default function EndpointDetailPane({
     else if (r || te) failed.push(m);
     else untested.push(m);
   }
-  available.sort((a, b) => {
-    const la = resultByModel.get(a)?.latency_ms ?? Number.MAX_SAFE_INTEGER;
-    const lb = resultByModel.get(b)?.latency_ms ?? Number.MAX_SAFE_INTEGER;
-    if (la !== lb) return la - lb;
-    return a.localeCompare(b);
-  });
-  failed.sort((a, b) => {
-    const ea = resultByModel.get(a)?.error_type ?? orch.errorFor(d.id, a) ?? "";
-    const eb = resultByModel.get(b)?.error_type ?? orch.errorFor(d.id, b) ?? "";
-    if (ea !== eb) return ea.localeCompare(eb);
-    return a.localeCompare(b);
-  });
-  untested.sort((a, b) => a.localeCompare(b));
+  function applySort(rows: string[], section: "available" | "failed" | "untested"): string[] {
+    if (sortMode === "provider") {
+      return [...rows].sort((a, b) => {
+        const pa = detectProvider(a);
+        const pb = detectProvider(b);
+        if (pa !== pb) return pa.localeCompare(pb);
+        return a.localeCompare(b);
+      });
+    }
+    if (sortMode === "name") {
+      return [...rows].sort((a, b) => a.localeCompare(b));
+    }
+    // default: 各段保持原有排序
+    if (section === "available") {
+      return [...rows].sort((a, b) => {
+        const la = resultByModel.get(a)?.latency_ms ?? Number.MAX_SAFE_INTEGER;
+        const lb = resultByModel.get(b)?.latency_ms ?? Number.MAX_SAFE_INTEGER;
+        if (la !== lb) return la - lb;
+        return a.localeCompare(b);
+      });
+    }
+    if (section === "failed") {
+      return [...rows].sort((a, b) => {
+        const ea = resultByModel.get(a)?.error_type ?? orch.errorFor(d.id, a) ?? "";
+        const eb = resultByModel.get(b)?.error_type ?? orch.errorFor(d.id, b) ?? "";
+        if (ea !== eb) return ea.localeCompare(eb);
+        return a.localeCompare(b);
+      });
+    }
+    return [...rows].sort((a, b) => a.localeCompare(b));
+  }
+
+  const availableSorted = applySort(available, "available");
+  const failedSorted = applySort(failed, "failed");
+  const untestedSorted = applySort(untested, "untested");
 
   const checkedVisible = visible.filter((m) => checked.has(m));
 
@@ -309,6 +335,7 @@ export default function EndpointDetailPane({
                 style={{ paddingLeft: 27, height: 26, fontSize: 11 }}
               />
             </div>
+            <SortControls mode={sortMode} setMode={setSortMode} />
             <div style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
               {checkedVisible.length} selected
@@ -343,11 +370,11 @@ export default function EndpointDetailPane({
               pulse
             />
           )}
-          {available.length > 0 && (
+          {availableSorted.length > 0 && (
             <ModelGroup
               title="Available"
               tone="ok"
-              rows={available}
+              rows={availableSorted}
               checked={checked}
               toggle={toggle}
               resultByModel={resultByModel}
@@ -355,11 +382,11 @@ export default function EndpointDetailPane({
               ep={d}
             />
           )}
-          {failed.length > 0 && (
+          {failedSorted.length > 0 && (
             <ModelGroup
               title="Failed"
               tone="bad"
-              rows={failed}
+              rows={failedSorted}
               checked={checked}
               toggle={toggle}
               resultByModel={resultByModel}
@@ -367,11 +394,11 @@ export default function EndpointDetailPane({
               ep={d}
             />
           )}
-          {untested.length > 0 && (
+          {untestedSorted.length > 0 && (
             <ModelGroup
               title="Untested"
               tone="muted"
-              rows={untested}
+              rows={untestedSorted}
               checked={checked}
               toggle={toggle}
               resultByModel={resultByModel}
@@ -532,13 +559,16 @@ function ModelGroup({
       </div>
       <div
         style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+          gap: 1,
           border: "1px solid var(--border)",
           borderRadius: 7,
           overflow: "hidden",
-          background: "var(--bg-elev)",
+          background: "var(--border)",
         }}
       >
-        {rows.map((m, i) => {
+        {rows.map((m) => {
           const r = resultByModel.get(m);
           const te = orch.errorFor(ep.id, m);
           const filterSkip = ep.excluded_by_filter.includes(m);
@@ -551,7 +581,6 @@ function ModelGroup({
               filterSkip={filterSkip}
               checked={checked.has(m)}
               toggle={() => toggle(m)}
-              last={i === rows.length - 1}
               pulse={!!pulse}
             />
           );
@@ -568,7 +597,6 @@ function ModelRow({
   filterSkip,
   checked,
   toggle,
-  last,
   pulse,
 }: {
   model: string;
@@ -577,24 +605,19 @@ function ModelRow({
   filterSkip: boolean;
   checked: boolean;
   toggle: () => void;
-  last: boolean;
   pulse: boolean;
 }) {
   return (
     <label
+      className="model-row"
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 9,
-        padding: "7px 12px",
-        borderBottom: last ? "none" : "1px solid var(--border)",
+        gap: 8,
+        padding: "6px 10px",
         cursor: "pointer",
-        transition: "background .1s",
+        minWidth: 0,
       }}
-      onMouseEnter={(e) =>
-        (e.currentTarget.style.background = "var(--bg-hover)")
-      }
-      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
       <input
         type="checkbox"
@@ -602,6 +625,7 @@ function ModelRow({
         onChange={toggle}
         style={{ accentColor: "var(--text)" }}
       />
+      <ProviderIcon modelId={model} size={14} />
       <span
         className="mono"
         style={{
@@ -615,7 +639,9 @@ function ModelRow({
       >
         {model}
       </span>
-      <CopyBtn text={model} title="Copy model id" />
+      <span className="row-copy">
+        <CopyBtn text={model} title="Copy model id" />
+      </span>
       <ModelStatus
         result={result}
         transientError={transientError}
@@ -654,19 +680,22 @@ function ModelStatus({
   }
   if (result) {
     if (result.status === "available") {
+      const ms = result.latency_ms;
+      const { color } = latencyTone(ms ?? Number.MAX_SAFE_INTEGER);
+      const label = ms == null ? "—" : `${ms}ms`;
       return (
         <span
           className="mono"
           style={{
             fontSize: 11,
-            color: "var(--ok)",
+            color,
             display: "flex",
             alignItems: "center",
             gap: 4,
           }}
         >
           <Icon name="check" size={10} />
-          {result.latency_ms}ms
+          {label}
         </span>
       );
     }
@@ -708,5 +737,62 @@ function ModelStatus({
   if (filterSkip) return <span className="badge">filter-skip</span>;
   return (
     <span style={{ fontSize: 11, color: "var(--text-faint)" }}>untested</span>
+  );
+}
+
+function latencyTone(ms: number): { color: string; label: string } {
+  if (ms < 500) return { color: "var(--ok)", label: `${ms}ms` };
+  if (ms < 2000) return { color: "var(--text-muted)", label: `${ms}ms` };
+  return { color: "var(--warn)", label: `${ms}ms` };
+}
+
+function SortControls({
+  mode,
+  setMode,
+}: {
+  mode: SortMode;
+  setMode: (m: SortMode) => void;
+}) {
+  const opts: Array<[SortMode, string]> = [
+    ["default", "latency"],
+    ["provider", "provider"],
+    ["name", "name"],
+  ];
+  return (
+    <div
+      style={{
+        display: "flex",
+        border: "1px solid var(--border)",
+        borderRadius: 6,
+        overflow: "hidden",
+        height: 26,
+      }}
+      role="group"
+      aria-label="Sort models"
+    >
+      {opts.map(([k, label], i) => (
+        <button
+          key={k}
+          type="button"
+          aria-pressed={mode === k}
+          onClick={() => setMode(k)}
+          style={{
+            padding: "0 9px",
+            border: "none",
+            borderRight:
+              i === opts.length - 1 ? "none" : "1px solid var(--border)",
+            background:
+              mode === k ? "var(--bg-hover)" : "var(--bg-elev)",
+            color: mode === k ? "var(--text)" : "var(--text-muted)",
+            fontSize: 11,
+            fontWeight: mode === k ? 600 : 500,
+            cursor: "pointer",
+            height: "100%",
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }

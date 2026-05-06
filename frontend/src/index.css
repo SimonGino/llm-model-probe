@@ -353,3 +353,21 @@ html:not([data-theme]) .btn-primary:hover {
     opacity: 1;
   }
 }
+.model-row {
+  background: var(--bg-elev);
+  transition: background 0.1s;
+}
+.model-row:hover {
+  background: var(--bg-hover);
+}
+.model-row .row-copy {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.model-row:hover .row-copy,
+.model-row:focus-within .row-copy {
+  opacity: 1;
+}
+.model-row .row-copy:has([data-copied]) {
+  opacity: 1;
+}

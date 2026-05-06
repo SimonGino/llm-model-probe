@@ -25,7 +25,8 @@ type IconName =
   | "tag"
   | "sun"
   | "moon"
-  | "circle-half";
+  | "circle-half"
+  | "cpu";
 
 export function Icon({
   name,
@@ -215,6 +216,14 @@ export function Icon({
           <path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none" />
         </svg>
       );
+    case "cpu":
+      return (
+        <svg {...common}>
+          <rect x="4" y="4" width="16" height="16" rx="2" />
+          <rect x="9" y="9" width="6" height="6" />
+          <path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -248,6 +257,7 @@ export function CopyBtn({ text, title = "复制" }: { text: string; title?: stri
     <button
       type="button"
       className="btn btn-ghost btn-icon btn-sm"
+      data-copied={copied || undefined}
       onClick={(e) => {
         e.stopPropagation();
         navigator.clipboard?.writeText(text).catch(() => {});
