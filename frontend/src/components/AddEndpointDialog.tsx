@@ -63,6 +63,25 @@ export default function AddEndpointDialog(props: Props) {
   const [paste, setPaste] = useState("");
   const [suggestion, setSuggestion] = useState<PasteSuggestion | null>(null);
   const [parsing, setParsing] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const aiParse = useMutation({
+    mutationFn: (blob: string) => api.aiParse(blob),
+    onSuccess: (out) => {
+      setAiError(null);
+      if (out.base_url) update("base_url", out.base_url);
+      if (out.api_key) update("api_key", out.api_key);
+      if (out.sdk) update("sdk", out.sdk);
+      if (out.name) update("name", out.name);
+    },
+    onError: (err: Error) => {
+      const msg = err.message || "parse failed";
+      if (msg.startsWith("412")) {
+        setAiError("Set a default parser in Settings first.");
+      } else {
+        setAiError(msg.slice(0, 160));
+      }
+    },
+  });
 
   // Reset form whenever the dialog reopens (or switches between endpoints in edit mode).
   useEffect(() => {
@@ -285,6 +304,35 @@ export default function AddEndpointDialog(props: Props) {
                     lineHeight: 1.5,
                   }}
                 />
+                <div
+                  style={{
+                    marginTop: 6,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => aiParse.mutate(paste)}
+                    disabled={!paste.trim() || aiParse.isPending}
+                    title="Use the configured AI parser to extract fields"
+                  >
+                    {aiParse.isPending ? "Parsing…" : "✨ AI Parse"}
+                  </button>
+                </div>
+                {aiError && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--bad)",
+                      marginTop: 6,
+                    }}
+                  >
+                    {aiError}
+                  </div>
+                )}
                 {suggestion && suggestion.parser !== "none" && (
                   <div
                     style={{
