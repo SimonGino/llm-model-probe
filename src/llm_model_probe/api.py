@@ -172,6 +172,7 @@ class AiParseResponse(BaseModel):
     name: str | None
     confidence: float
     latency_ms: int
+    raw_text: str | None = None
 
 
 # ---------- routes ----------
@@ -731,7 +732,7 @@ def ai_parse(req: AiParseRequest) -> AiParseResponse:
     try:
         try:
             result = asyncio.run(
-                provider.complete(settings.model_id, prompt, max_tokens=400)
+                provider.complete(settings.model_id, prompt, max_tokens=1500)
             )
         finally:
             asyncio.run(provider.aclose())
@@ -771,6 +772,7 @@ def ai_parse(req: AiParseRequest) -> AiParseResponse:
         name=name,
         confidence=confidence,
         latency_ms=result.latency_ms,
+        raw_text=(result.text or "")[:600],
     )
 
 

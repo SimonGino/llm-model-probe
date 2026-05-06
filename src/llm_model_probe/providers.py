@@ -125,18 +125,32 @@ class OpenAIProvider:
             "max_tokens": max_tokens,
             "temperature": 0,
             "response_format": {"type": "json_object"},
+            # Disable thinking for Qwen-style vLLM proxies; ignored elsewhere.
+            "extra_body": {
+                "chat_template_kwargs": {"enable_thinking": False}
+            },
         }
+
+        def _extract_text(resp) -> str:
+            if not resp.choices:
+                return ""
+            msg = resp.choices[0].message
+            return (msg.content if msg else "") or ""
+
         try:
             resp = await self._client.chat.completions.create(**kwargs)
+            text = _extract_text(resp)
         except Exception:
-            # Some OpenAI-compatible proxies reject response_format. Retry plain.
+            text = ""
+        # Some proxies accept response_format but silently return empty content,
+        # or reject extra_body. Retry stripped down if the first call yielded
+        # nothing usable.
+        if not text:
             kwargs.pop("response_format", None)
+            kwargs.pop("extra_body", None)
             resp = await self._client.chat.completions.create(**kwargs)
+            text = _extract_text(resp)
         elapsed = int((time.perf_counter() - start) * 1000)
-        text = ""
-        if resp.choices:
-            msg = resp.choices[0].message
-            text = (msg.content if msg else "") or ""
         return CompleteResult(text=text, latency_ms=elapsed)
 
     async def aclose(self) -> None:

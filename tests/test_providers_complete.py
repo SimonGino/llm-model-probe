@@ -98,3 +98,52 @@ async def test_anthropic_complete_returns_first_text_block(
     assert out.text == '{"a": 1}'
     assert calls[0]["model"] == "claude-3-5-haiku"
     assert calls[0]["max_tokens"] == 300
+
+
+async def test_openai_complete_sends_extra_body_to_disable_thinking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Qwen vLLM proxies need chat_template_kwargs.enable_thinking=False to
+    skip the reasoning step that would otherwise eat the whole token budget."""
+    provider = OpenAIProvider(
+        name="t", base_url="https://example.com", api_key="sk-x", timeout=5
+    )
+    calls: list[dict] = []
+
+    async def fake_create(**kwargs):
+        calls.append(dict(kwargs))
+        return _ChatResp('{"ok": 1}')
+
+    monkeypatch.setattr(provider._client.chat.completions, "create", fake_create)
+
+    await provider.complete("qwen3", "x", max_tokens=200)
+    assert calls[0]["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": False}
+    }
+
+
+async def test_openai_complete_retries_when_first_call_returns_empty_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Some proxies accept the request but silently return empty content.
+    Retry stripped of response_format + extra_body."""
+    provider = OpenAIProvider(
+        name="t", base_url="https://example.com", api_key="sk-x", timeout=5
+    )
+    calls: list[dict] = []
+
+    async def fake_create(**kwargs):
+        calls.append(dict(kwargs))
+        if len(calls) == 1:
+            return _ChatResp("")  # silent empty
+        return _ChatResp('{"recovered": true}')
+
+    monkeypatch.setattr(provider._client.chat.completions, "create", fake_create)
+
+    out = await provider.complete("m", "hi", max_tokens=200)
+    assert out.text == '{"recovered": true}'
+    assert len(calls) == 2
+    assert "response_format" in calls[0]
+    assert "extra_body" in calls[0]
+    assert "response_format" not in calls[1]
+    assert "extra_body" not in calls[1]
