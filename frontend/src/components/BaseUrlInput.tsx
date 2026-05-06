@@ -1,5 +1,6 @@
 import { Input } from "@/components/ui/input";
 
+// Keep in sync with _STRIP_SUFFIXES in src/llm_model_probe/api.py
 const STRIP_SUFFIXES = [
   "/v1/messages",
   "/chat/completions",
@@ -32,7 +33,8 @@ export default function BaseUrlInput({
 }) {
   const trimmed = value.trim();
   const suggestion = trimmed ? normalizeBaseUrl(trimmed) : "";
-  const canSuggest = trimmed.length > 0 && suggestion !== trimmed;
+  const canSuggest =
+    trimmed.length > 0 && suggestion.length > 0 && suggestion !== trimmed;
 
   return (
     <div className="space-y-1">
@@ -50,6 +52,8 @@ export default function BaseUrlInput({
           </span>
           <button
             type="button"
+            title={`使用建议的 URL: ${suggestion}`}
+            aria-label={`使用建议的 URL: ${suggestion}`}
             onClick={() => onChange(suggestion)}
             className="text-primary hover:underline"
           >
