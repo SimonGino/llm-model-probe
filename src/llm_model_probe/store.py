@@ -11,6 +11,8 @@ from typing import Iterator
 from .models import Endpoint, ModelResult
 from .paths import db_path, ensure_home
 
+_UNSET: object = object()
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS endpoints (
     id          TEXT PRIMARY KEY,
@@ -185,6 +187,57 @@ class EndpointStore:
                 "UPDATE endpoints SET tags_json = ?, updated_at = ? WHERE id = ?",
                 (json.dumps(tags), _iso(datetime.now()), ep_id),
             )
+
+    def update_endpoint(
+        self,
+        ep_id: str,
+        *,
+        name: str | None = None,
+        sdk: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        note: str | None = None,
+        stale_since: object = _UNSET,
+    ) -> None:
+        """Partial update.
+
+        For str fields, None means "leave unchanged".
+        For stale_since, the default sentinel means "leave unchanged"; pass
+        a datetime to set, or None to explicitly clear.
+        """
+        sets: list[str] = []
+        params: list = []
+        if name is not None:
+            sets.append("name = ?")
+            params.append(name)
+        if sdk is not None:
+            sets.append("sdk = ?")
+            params.append(sdk)
+        if base_url is not None:
+            sets.append("base_url = ?")
+            params.append(base_url)
+        if api_key is not None:
+            sets.append("api_key = ?")
+            params.append(api_key)
+        if note is not None:
+            sets.append("note = ?")
+            params.append(note)
+        if stale_since is not _UNSET:
+            sets.append("stale_since = ?")
+            params.append(_iso(stale_since) if stale_since is not None else None)
+        if not sets:
+            return
+        sets.append("updated_at = ?")
+        params.append(_iso(datetime.now()))
+        params.append(ep_id)
+        sql = f"UPDATE endpoints SET {', '.join(sets)} WHERE id = ?"
+        try:
+            with self._conn() as c:
+                c.execute(sql, params)
+        except sqlite3.IntegrityError as e:
+            raise ValueError(
+                f"endpoint name conflict (likely '{name}' already in use)"
+            ) from e
 
     # --- model_results ---------------------------------------------
 

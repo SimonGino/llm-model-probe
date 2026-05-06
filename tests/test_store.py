@@ -362,3 +362,51 @@ def test_migration_stale_since_idempotent(isolated_home: Path) -> None:
     s1.init_schema()
     s2 = EndpointStore()
     s2.init_schema()  # second run: must not raise
+
+
+def test_update_endpoint_partial(store: EndpointStore) -> None:
+    ep = _ep("editme")
+    store.insert_endpoint(ep)
+    store.update_endpoint(ep.id, name="renamed", note="new note")
+    got = store.get_endpoint(ep.id)
+    assert got is not None
+    assert got.name == "renamed"
+    assert got.note == "new note"
+    assert got.base_url == "https://api.example.com/v1"  # untouched
+
+
+def test_update_endpoint_no_fields_is_noop(store: EndpointStore) -> None:
+    ep = _ep("noop")
+    store.insert_endpoint(ep)
+    before = store.get_endpoint(ep.id)
+    store.update_endpoint(ep.id)  # no kwargs
+    after = store.get_endpoint(ep.id)
+    assert before == after  # updated_at didn't bump
+
+
+def test_update_endpoint_set_stale_since(store: EndpointStore) -> None:
+    ep = _ep("stalebump")
+    store.insert_endpoint(ep)
+    when = datetime(2026, 5, 6, 10, 0, 0)
+    store.update_endpoint(ep.id, stale_since=when)
+    got = store.get_endpoint(ep.id)
+    assert got is not None
+    assert got.stale_since == when
+
+
+def test_update_endpoint_clear_stale_since(store: EndpointStore) -> None:
+    ep = _ep("staleclear")
+    ep.stale_since = datetime(2026, 5, 6, 10, 0, 0)
+    store.insert_endpoint(ep)
+    store.update_endpoint(ep.id, stale_since=None)
+    got = store.get_endpoint(ep.id)
+    assert got is not None
+    assert got.stale_since is None
+
+
+def test_update_endpoint_name_conflict(store: EndpointStore) -> None:
+    a = _ep("alpha"); b = _ep("beta")
+    store.insert_endpoint(a)
+    store.insert_endpoint(b)
+    with pytest.raises(ValueError, match="already in use|already exists"):
+        store.update_endpoint(b.id, name="alpha")
