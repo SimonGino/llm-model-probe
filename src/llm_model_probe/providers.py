@@ -23,6 +23,12 @@ class ProbeResult:
     response_preview: str | None = None
 
 
+@dataclass
+class CompleteResult:
+    text: str
+    latency_ms: int
+
+
 class Provider(Protocol):
     name: str
     sdk: str
@@ -32,6 +38,10 @@ class Provider(Protocol):
     async def probe(
         self, model: str, prompt: str, max_tokens: int
     ) -> ProbeResult: ...
+
+    async def complete(
+        self, model: str, prompt: str, max_tokens: int
+    ) -> CompleteResult: ...
 
     async def aclose(self) -> None: ...
 
@@ -105,6 +115,29 @@ class OpenAIProvider:
                 error_message=_truncate(str(e), 300),
             )
 
+    async def complete(
+        self, model: str, prompt: str, max_tokens: int
+    ) -> CompleteResult:
+        start = time.perf_counter()
+        kwargs: dict = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
+        }
+        try:
+            resp = await self._client.chat.completions.create(**kwargs)
+        except Exception:
+            # Some OpenAI-compatible proxies reject response_format. Retry plain.
+            kwargs.pop("response_format", None)
+            resp = await self._client.chat.completions.create(**kwargs)
+        elapsed = int((time.perf_counter() - start) * 1000)
+        text = ""
+        if resp.choices:
+            msg = resp.choices[0].message
+            text = (msg.content if msg else "") or ""
+        return CompleteResult(text=text, latency_ms=elapsed)
+
     async def aclose(self) -> None:
         # Best-effort. httpx + asyncio.run across short-lived per-request
         # clients can race on transport teardown ("Event loop is closed").
@@ -165,6 +198,21 @@ class AnthropicProvider:
                 error_type=type(e).__name__,
                 error_message=_truncate(str(e), 300),
             )
+
+    async def complete(
+        self, model: str, prompt: str, max_tokens: int
+    ) -> CompleteResult:
+        start = time.perf_counter()
+        resp = await self._client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        elapsed = int((time.perf_counter() - start) * 1000)
+        text = ""
+        if resp.content:
+            text = getattr(resp.content[0], "text", "") or ""
+        return CompleteResult(text=text, latency_ms=elapsed)
 
     async def aclose(self) -> None:
         # Best-effort. httpx + asyncio.run across short-lived per-request
