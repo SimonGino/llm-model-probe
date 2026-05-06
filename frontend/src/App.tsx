@@ -10,6 +10,7 @@ import EndpointSidebar, {
 import EndpointDetailPane from "@/components/EndpointDetailPane";
 import AddEndpointDialog from "@/components/AddEndpointDialog";
 import LoginScreen from "@/components/LoginScreen";
+import SettingsModal from "@/components/SettingsModal";
 import { BrandMark, Icon } from "@/components/atoms";
 
 export default function App() {
@@ -73,6 +74,7 @@ function SplitApp({ onLogout }: { onLogout: () => void }) {
   const totalPending = orch.totalPending();
 
   const [showAdd, setShowAdd] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("status");
@@ -152,6 +154,7 @@ function SplitApp({ onLogout }: { onLogout: () => void }) {
         onAdd={() => setShowAdd(true)}
         onRetestAll={retestEverything}
         onLogout={onLogout}
+        onOpenSettings={() => setSettingsOpen(true)}
         retesting={totalPending > 0}
         retestPending={totalPending}
       />
@@ -202,6 +205,7 @@ function SplitApp({ onLogout }: { onLogout: () => void }) {
         onClose={() => setShowAdd(false)}
         onSuccess={(d) => setSelectedId(d.id)}
       />
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
@@ -212,6 +216,7 @@ function TopBar({
   onAdd,
   onRetestAll,
   onLogout,
+  onOpenSettings,
   retesting,
   retestPending,
 }: {
@@ -220,6 +225,7 @@ function TopBar({
   onAdd: () => void;
   onRetestAll: () => void;
   onLogout: () => void;
+  onOpenSettings: () => void;
   retesting: boolean;
   retestPending: number;
 }) {
@@ -274,6 +280,14 @@ function TopBar({
           <span className="kbd">K</span>
         </span>
       </div>
+      <button
+        className="btn btn-ghost btn-icon"
+        title="Settings"
+        aria-label="Settings"
+        onClick={onOpenSettings}
+      >
+        <Icon name="settings" size={13} />
+      </button>
       <ThemeToggle />
       <button
         className="btn"
