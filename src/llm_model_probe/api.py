@@ -10,6 +10,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl
 
+_STRIP_SUFFIXES = (
+    "/v1/messages",
+    "/chat/completions",
+    "/messages",
+    "/completions",
+)
+
+
+def normalize_base_url(url: str) -> str:
+    """Strip well-known completion-endpoint suffixes from a base URL.
+
+    Iterates _STRIP_SUFFIXES which is ordered so that longer/more-specific
+    suffixes come first — first match wins.
+    """
+    s = url.rstrip("/")
+    lowered = s.lower()
+    for suffix in _STRIP_SUFFIXES:
+        if lowered.endswith(suffix):
+            s = s[: -len(suffix)]
+            break
+    return s.rstrip("/")
+
+
 DEV_MODE = os.environ.get("LLM_MODEL_PROBE_DEV") == "1"
 
 app = FastAPI(title="llm-model-probe")
