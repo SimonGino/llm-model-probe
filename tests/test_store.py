@@ -408,5 +408,5 @@ def test_update_endpoint_name_conflict(store: EndpointStore) -> None:
     a = _ep("alpha"); b = _ep("beta")
     store.insert_endpoint(a)
     store.insert_endpoint(b)
-    with pytest.raises(ValueError, match="already in use|already exists"):
+    with pytest.raises(ValueError, match="already exists"):
         store.update_endpoint(b.id, name="alpha")

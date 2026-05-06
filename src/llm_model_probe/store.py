@@ -11,7 +11,14 @@ from typing import Iterator
 from .models import Endpoint, ModelResult
 from .paths import db_path, ensure_home
 
-_UNSET: object = object()
+class _Unset:
+    """Sentinel type for update_endpoint: field not supplied (vs explicit None)."""
+
+    def __repr__(self) -> str:
+        return "<UNSET>"
+
+
+_UNSET: _Unset = _Unset()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS endpoints (
@@ -197,7 +204,7 @@ class EndpointStore:
         base_url: str | None = None,
         api_key: str | None = None,
         note: str | None = None,
-        stale_since: object = _UNSET,
+        stale_since: datetime | None | _Unset = _UNSET,
     ) -> None:
         """Partial update.
 
@@ -236,7 +243,7 @@ class EndpointStore:
                 c.execute(sql, params)
         except sqlite3.IntegrityError as e:
             raise ValueError(
-                f"endpoint name conflict (likely '{name}' already in use)"
+                f"endpoint name '{name}' already exists"
             ) from e
 
     # --- model_results ---------------------------------------------
