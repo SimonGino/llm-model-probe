@@ -821,3 +821,34 @@ def test_retest_clears_stale_since(
     r2 = client.post(f"/api/endpoints/{ep.id}/retest")
     assert r2.status_code == 200
     assert r2.json()["stale_since"] is None
+
+
+def test_retest_keeps_stale_when_list_error(
+    client: TestClient,
+    seed_store: EndpointStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If retest fails at list_models() level, stale_since must persist —
+    the stored model results are still from the previous config."""
+    ep = _seed_endpoint(seed_store, "stale-failed-retest")
+
+    r = client.patch(
+        f"/api/endpoints/{ep.id}", json={"base_url": "https://broken.example/v1"}
+    )
+    assert r.status_code == 200
+    assert r.json()["stale_since"] is not None
+
+    from llm_model_probe.probe import ProbeRunner, ProbeOutcome
+    async def _stub_failed_probe(self, ep, *, allow_partial=False):  # noqa: ARG001
+        return ProbeOutcome(
+            list_error="ConnectError: name resolution failed",
+            new_results=None,
+            skipped=[],
+        )
+    monkeypatch.setattr(ProbeRunner, "probe_endpoint", _stub_failed_probe)
+
+    r2 = client.post(f"/api/endpoints/{ep.id}/retest")
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["list_error"] == "ConnectError: name resolution failed"
+    assert body["stale_since"] is not None  # still stale — failed retest didn't refresh
