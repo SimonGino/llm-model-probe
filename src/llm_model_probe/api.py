@@ -161,6 +161,19 @@ class PasteParseResponse(BaseModel):
     parser: Literal["json", "dotenv", "curl", "none"]
 
 
+class AiParseRequest(BaseModel):
+    blob: str = Field(..., min_length=1)
+
+
+class AiParseResponse(BaseModel):
+    base_url: str | None
+    api_key: str | None
+    sdk: SdkType | None
+    name: str | None
+    confidence: float
+    latency_ms: int
+
+
 # ---------- routes ----------
 
 from fastapi import HTTPException
@@ -650,6 +663,27 @@ def _read_parser_settings(store: EndpointStore) -> ParserSettings:
     return ParserSettings(endpoint_id=ep_id, model_id=m_id)
 
 
+def _extract_json_object(text: str) -> dict | None:
+    """Try strict json.loads first, then fall back to the first {...} block."""
+    import json as _j
+    import re as _re
+
+    text = text.strip()
+    try:
+        v = _j.loads(text)
+        return v if isinstance(v, dict) else None
+    except Exception:
+        pass
+    m = _re.search(r"\{.*?\}", text, flags=_re.DOTALL)
+    if not m:
+        return None
+    try:
+        v = _j.loads(m.group(0))
+        return v if isinstance(v, dict) else None
+    except Exception:
+        return None
+
+
 @app.get("/api/settings/parser", response_model=ParserSettings)
 def get_parser_settings() -> ParserSettings:
     return _read_parser_settings(_store())
@@ -673,6 +707,70 @@ def put_parser_settings(payload: ParserSettings) -> ParserSettings:
     store.set_setting("parser.model_id", payload.model_id)
     return ParserSettings(
         endpoint_id=payload.endpoint_id, model_id=payload.model_id
+    )
+
+
+@app.post("/api/ai-parse", response_model=AiParseResponse)
+def ai_parse(req: AiParseRequest) -> AiParseResponse:
+    from .parser_prompt import build_parse_prompt
+    from .providers import make_provider
+
+    store = _store()
+    settings = _read_parser_settings(store)
+    if settings.endpoint_id is None or settings.model_id is None:
+        raise HTTPException(
+            status_code=412,
+            detail="default parser not configured; set one in Settings",
+        )
+    ep = store.get_endpoint(settings.endpoint_id)
+    assert ep is not None  # _read_parser_settings already nulled stale rows
+
+    prompt = build_parse_prompt(req.blob)
+    runtime = load_settings()
+    provider = make_provider(ep, runtime.timeout_seconds)
+    try:
+        try:
+            result = asyncio.run(
+                provider.complete(settings.model_id, prompt, max_tokens=400)
+            )
+        finally:
+            asyncio.run(provider.aclose())
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"{type(e).__name__}: {str(e)[:200]}",
+        )
+
+    obj = _extract_json_object(result.text) or {}
+
+    def _get(key: str) -> str | None:
+        v = obj.get(key)
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s or None
+
+    base_url = _get("base_url")
+    api_key = _get("api_key")
+    sdk = _get("sdk")
+    if sdk not in ("openai", "anthropic"):
+        sdk = None
+    name = _get("name")
+
+    if base_url and api_key:
+        confidence = 1.0
+    elif base_url or api_key:
+        confidence = 0.5
+    else:
+        confidence = 0.0
+
+    return AiParseResponse(
+        base_url=base_url,
+        api_key=api_key,
+        sdk=sdk,  # type: ignore[arg-type]
+        name=name,
+        confidence=confidence,
+        latency_ms=result.latency_ms,
     )
 
 
