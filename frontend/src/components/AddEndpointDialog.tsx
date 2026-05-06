@@ -207,7 +207,7 @@ export default function AddEndpointDialog(props: Props) {
         background: "rgba(10, 10, 9, 0.55)",
         backdropFilter: "blur(3px)",
         display: "grid",
-        placeItems: "center",
+        placeItems: "safe center",
         padding: "5vh 24px",
         animation: "fadeIn .15s ease-out",
         overflowY: "auto",
