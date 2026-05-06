@@ -102,6 +102,7 @@ class EndpointSummary(BaseModel):
     total_models: int
     tags: list[str]
     last_tested_at: datetime | None
+    stale_since: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -187,6 +188,7 @@ def _summary(store: EndpointStore, ep: Endpoint) -> EndpointSummary:
         total_models=len(ep.models),
         tags=ep.tags,
         last_tested_at=store.last_tested_at(ep.id),
+        stale_since=ep.stale_since,
         created_at=ep.created_at or datetime.now(),
         updated_at=ep.updated_at or datetime.now(),
     )

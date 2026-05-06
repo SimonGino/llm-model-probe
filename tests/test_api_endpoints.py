@@ -655,3 +655,26 @@ def test_create_endpoint_normalizes_base_url(
     assert r.status_code == 201
     body = r.json()
     assert body["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
+
+
+def test_endpoint_summary_includes_stale_since(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    """A freshly seeded endpoint has stale_since=None and the API surfaces it."""
+    _seed_endpoint(seed_store, "alpha")
+    r = client.get("/api/endpoints")
+    assert r.status_code == 200
+    item = r.json()[0]
+    assert "stale_since" in item
+    assert item["stale_since"] is None
+
+
+def test_endpoint_detail_includes_stale_since(
+    client: TestClient, seed_store: EndpointStore
+) -> None:
+    _seed_endpoint(seed_store, "beta")
+    r = client.get("/api/endpoints/beta")
+    assert r.status_code == 200
+    body = r.json()
+    assert "stale_since" in body
+    assert body["stale_since"] is None
