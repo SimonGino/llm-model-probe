@@ -283,3 +283,34 @@ def test_last_tested_at(store: EndpointStore) -> None:
     latest = store.last_tested_at(ep.id)
     assert latest is not None
     assert abs((latest - now).total_seconds()) < 1
+
+
+def test_stale_since_roundtrip(store: EndpointStore) -> None:
+    ep = _ep("stalecheck")
+    ep.stale_since = datetime(2026, 5, 6, 10, 0, 0)
+    store.insert_endpoint(ep)
+    got = store.get_endpoint("stalecheck")
+    assert got is not None
+    assert got.stale_since == datetime(2026, 5, 6, 10, 0, 0)
+
+
+def test_stale_since_default_none(store: EndpointStore) -> None:
+    ep = _ep("freshep")
+    store.insert_endpoint(ep)
+    got = store.get_endpoint("freshep")
+    assert got is not None
+    assert got.stale_since is None
+
+
+def test_migration_adds_stale_since_idempotent(isolated_home: Path) -> None:
+    """Old DB with no stale_since column gets the column added on init,
+    and re-running init_schema is a no-op."""
+    s1 = EndpointStore()
+    s1.init_schema()
+    s2 = EndpointStore()
+    s2.init_schema()  # second run: must not raise
+    ep = _ep("post-migrate")
+    s2.insert_endpoint(ep)
+    got = s2.get_endpoint("post-migrate")
+    assert got is not None
+    assert got.stale_since is None

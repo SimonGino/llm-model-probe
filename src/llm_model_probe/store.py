@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS endpoints (
     note        TEXT NOT NULL DEFAULT '',
     list_error  TEXT,
     tags_json   TEXT NOT NULL DEFAULT '[]',
+    stale_since TEXT,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
@@ -74,6 +75,7 @@ class EndpointStore:
         with self._conn() as c:
             c.executescript(SCHEMA)
             self._migrate_tags(c)
+            self._migrate_stale_since(c)
             self._backfill_models_from_results(c)
         try:
             self._path.chmod(0o600)
@@ -88,6 +90,15 @@ class EndpointStore:
             c.execute(
                 "ALTER TABLE endpoints "
                 "ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"
+            )
+
+    @staticmethod
+    def _migrate_stale_since(c: sqlite3.Connection) -> None:
+        """Old DB without stale_since column - idempotently add it."""
+        cols = {row["name"] for row in c.execute("PRAGMA table_info(endpoints)")}
+        if "stale_since" not in cols:
+            c.execute(
+                "ALTER TABLE endpoints ADD COLUMN stale_since TEXT"
             )
 
     @staticmethod
@@ -128,12 +139,14 @@ class EndpointStore:
                 c.execute(
                     """INSERT INTO endpoints
                        (id, name, sdk, base_url, api_key, mode, models_json,
-                        note, list_error, tags_json, created_at, updated_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        note, list_error, tags_json, stale_since,
+                        created_at, updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         ep.id, ep.name, ep.sdk, ep.base_url, ep.api_key,
                         ep.mode, json.dumps(ep.models), ep.note,
                         ep.list_error, json.dumps(ep.tags),
+                        _iso(ep.stale_since),
                         _iso(ep.created_at), _iso(ep.updated_at),
                     ),
                 )
@@ -255,6 +268,7 @@ class EndpointStore:
             note=row["note"],
             list_error=row["list_error"],
             tags=json.loads(row["tags_json"]),
+            stale_since=_from_iso(row["stale_since"]),
             created_at=_from_iso(row["created_at"]),
             updated_at=_from_iso(row["updated_at"]),
         )
