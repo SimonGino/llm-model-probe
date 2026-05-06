@@ -197,9 +197,10 @@ function SplitApp({ onLogout }: { onLogout: () => void }) {
       </div>
 
       <AddEndpointDialog
+        mode="add"
         open={showAdd}
         onClose={() => setShowAdd(false)}
-        onCreated={(id) => setSelectedId(id)}
+        onSuccess={(d) => setSelectedId(d.id)}
       />
     </div>
   );
