@@ -198,6 +198,20 @@ function ListRow({
         >
           {ep.name}
         </span>
+        {ep.stale_since && (
+          <span
+            role="img"
+            aria-label="配置已修改，数据可能过期"
+            title="配置已修改，数据可能过期"
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: "var(--warn)",
+              flexShrink: 0,
+            }}
+          />
+        )}
         <span
           style={{
             fontSize: 10,

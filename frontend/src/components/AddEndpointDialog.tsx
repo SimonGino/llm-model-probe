@@ -9,7 +9,7 @@ import type {
 } from "@/lib/types";
 import { parseLocally } from "@/lib/parsePaste";
 import { Icon } from "@/components/atoms";
-import { normalizeBaseUrl } from "./BaseUrlInput";
+import { normalizeBaseUrl } from "@/lib/url-normalize";
 
 type FormState = {
   name: string;

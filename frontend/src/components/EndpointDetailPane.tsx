@@ -10,6 +10,7 @@ import {
 } from "@/components/atoms";
 import TagEditor from "./TagEditor";
 import ApiKeyReveal from "./ApiKeyReveal";
+import AddEndpointDialog from "./AddEndpointDialog";
 import { relative } from "@/lib/format";
 import type { EndpointDetail, ModelResultPublic } from "@/lib/types";
 import { ProviderIcon, detectProvider } from "@/lib/provider";
@@ -32,6 +33,7 @@ export default function EndpointDetailPane({
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [modelSearch, setModelSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("default");
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     if (!detail.data) return;
@@ -189,6 +191,14 @@ export default function EndpointDetailPane({
         </button>
         <button
           className="btn btn-sm btn-ghost btn-icon"
+          title="Edit endpoint"
+          aria-label="Edit endpoint"
+          onClick={() => setEditOpen(true)}
+        >
+          <Icon name="edit" size={11} />
+        </button>
+        <button
+          className="btn btn-sm btn-ghost btn-icon"
           title="Delete endpoint"
           onClick={confirmDelete}
           disabled={remove.isPending}
@@ -211,6 +221,31 @@ export default function EndpointDetailPane({
         {d.base_url}
         <CopyBtn text={d.base_url} />
       </div>
+
+      {d.stale_since && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "9px 12px",
+            marginBottom: 14,
+            background: "var(--bg-elev)",
+            border: "1px solid var(--warn)",
+            borderRadius: 7,
+            fontSize: 12,
+            color: "var(--text)",
+          }}
+        >
+          <span
+            className="dot"
+            style={{ background: "var(--warn)", flexShrink: 0 }}
+          />
+          <span style={{ flex: 1 }}>
+            端点配置已修改（{relative(d.stale_since)}），数据可能过期。建议重测。
+          </span>
+        </div>
+      )}
 
       {/* stat strip */}
       <div
@@ -367,6 +402,7 @@ export default function EndpointDetailPane({
               resultByModel={resultByModel}
               orch={orch}
               ep={d}
+              stale={!!d.stale_since}
               pulse
             />
           )}
@@ -380,6 +416,7 @@ export default function EndpointDetailPane({
               resultByModel={resultByModel}
               orch={orch}
               ep={d}
+              stale={!!d.stale_since}
             />
           )}
           {failedSorted.length > 0 && (
@@ -392,6 +429,7 @@ export default function EndpointDetailPane({
               resultByModel={resultByModel}
               orch={orch}
               ep={d}
+              stale={!!d.stale_since}
             />
           )}
           {untestedSorted.length > 0 && (
@@ -404,6 +442,7 @@ export default function EndpointDetailPane({
               resultByModel={resultByModel}
               orch={orch}
               ep={d}
+              stale={!!d.stale_since}
             />
           )}
           {visible.length === 0 && (
@@ -436,6 +475,16 @@ export default function EndpointDetailPane({
             : "No models. Specified mode with empty list."}
         </div>
       )}
+
+      <AddEndpointDialog
+        mode="edit"
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        initial={d}
+        onSuccess={() => {
+          // Query invalidation is handled inside the dialog's patch.onSuccess.
+        }}
+      />
     </div>
   );
 }
@@ -512,6 +561,7 @@ function ModelGroup({
   resultByModel,
   orch,
   ep,
+  stale,
   pulse,
 }: {
   title: string;
@@ -522,6 +572,7 @@ function ModelGroup({
   resultByModel: Map<string, ModelResultPublic>;
   orch: ReturnType<typeof useProbeOrchestrator>;
   ep: EndpointDetail;
+  stale: boolean;
   pulse?: boolean;
 }) {
   const color = {
@@ -581,6 +632,7 @@ function ModelGroup({
               filterSkip={filterSkip}
               checked={checked.has(m)}
               toggle={() => toggle(m)}
+              stale={stale}
               pulse={!!pulse}
             />
           );
@@ -597,6 +649,7 @@ function ModelRow({
   filterSkip,
   checked,
   toggle,
+  stale,
   pulse,
 }: {
   model: string;
@@ -605,6 +658,7 @@ function ModelRow({
   filterSkip: boolean;
   checked: boolean;
   toggle: () => void;
+  stale: boolean;
   pulse: boolean;
 }) {
   return (
@@ -642,12 +696,14 @@ function ModelRow({
       <span className="row-copy">
         <CopyBtn text={model} title="Copy model id" />
       </span>
-      <ModelStatus
-        result={result}
-        transientError={transientError}
-        filterSkip={filterSkip}
-        pulse={pulse}
-      />
+      <span style={{ opacity: stale && !pulse ? 0.5 : 1 }}>
+        <ModelStatus
+          result={result}
+          transientError={transientError}
+          filterSkip={filterSkip}
+          pulse={pulse}
+        />
+      </span>
     </label>
   );
 }
