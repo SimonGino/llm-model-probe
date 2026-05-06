@@ -634,12 +634,7 @@ def _parse_curl(blob: str) -> dict | None:
     url_match = _URL.search(blob)
     if url_match:
         url = url_match.group(0).rstrip(",;")
-        if "/v1" in url:
-            url = url.split("/v1", 1)[0] + "/v1"
-        else:
-            from urllib.parse import urlsplit
-            sp = urlsplit(url)
-            url = f"{sp.scheme}://{sp.netloc}"
+        url = normalize_base_url(url)
         out["base_url"] = url
         out["sdk"] = _guess_sdk(url)
     return out or None
