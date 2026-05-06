@@ -629,13 +629,17 @@ def test_detail_still_masks_api_key(
 
 
 def test_create_endpoint_normalizes_base_url(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient,
+    isolated_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """POST /api/endpoints strips known completion-endpoint suffixes."""
     # Stub list_models so create doesn't hit the network
-    async def _stub_list_models(self):  # type: ignore[no-untyped-def]
-        return ["gpt-4"]
     from llm_model_probe.providers import OpenAIProvider
+
+    async def _stub_list_models(self):  # noqa: ARG001
+        return ["gpt-4"]
+
     monkeypatch.setattr(OpenAIProvider, "list_models", _stub_list_models)
 
     r = client.post(
