@@ -626,3 +626,28 @@ def test_detail_still_masks_api_key(
     assert "api_key" not in detail_json
     assert detail_json["api_key_masked"].startswith("sk-M")
     assert detail_json["api_key_masked"].endswith("1234")
+
+
+def test_create_endpoint_normalizes_base_url(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /api/endpoints strips known completion-endpoint suffixes."""
+    # Stub list_models so create doesn't hit the network
+    async def _stub_list_models(self):  # type: ignore[no-untyped-def]
+        return ["gpt-4"]
+    from llm_model_probe.providers import OpenAIProvider
+    monkeypatch.setattr(OpenAIProvider, "list_models", _stub_list_models)
+
+    r = client.post(
+        "/api/endpoints",
+        json={
+            "name": "zhipu",
+            "sdk": "openai",
+            "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+            "api_key": "k",
+            "no_probe": True,
+        },
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["base_url"] == "https://open.bigmodel.cn/api/paas/v4"

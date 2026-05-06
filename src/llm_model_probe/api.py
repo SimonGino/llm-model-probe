@@ -286,11 +286,12 @@ def _persist_models(store: EndpointStore, ep_id: str, models: list[str]) -> None
 def create_endpoint(payload: EndpointCreate) -> EndpointDetail:
     store = _store()
     mode = "specified" if payload.models else "discover"
+    base_url = normalize_base_url(str(payload.base_url).rstrip("/"))
     ep = Endpoint(
         id=new_endpoint_id(),
         name=payload.name,
         sdk=payload.sdk,
-        base_url=str(payload.base_url).rstrip("/"),
+        base_url=base_url,
         api_key=payload.api_key,
         mode=mode,  # type: ignore[arg-type]
         models=list(payload.models),
