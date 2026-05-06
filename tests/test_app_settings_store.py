@@ -42,3 +42,25 @@ def test_init_schema_idempotent_with_app_settings(isolated_home: Path) -> None:
     store.set_setting("k", "v")
     store.init_schema()  # second call
     assert store.get_setting("k") == "v"
+
+
+def test_delete_nonexistent_is_noop(isolated_home: Path) -> None:
+    store = EndpointStore()
+    store.init_schema()
+    # Should not raise even though the key was never inserted.
+    store.delete_setting("never.set")
+    assert store.get_setting("never.set") is None
+
+
+def test_set_setting_populates_updated_at(isolated_home: Path) -> None:
+    import sqlite3
+
+    store = EndpointStore()
+    store.init_schema()
+    store.set_setting("k", "v")
+    with sqlite3.connect(store._path) as c:
+        row = c.execute(
+            "SELECT updated_at FROM app_settings WHERE key = 'k'"
+        ).fetchone()
+    assert row is not None
+    assert row[0]  # non-null, non-empty string
