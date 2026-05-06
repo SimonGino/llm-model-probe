@@ -15,6 +15,7 @@ export interface EndpointSummary {
   total_models: number;
   tags: string[];
   last_tested_at: string | null;
+  stale_since: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -52,4 +53,12 @@ export interface PasteSuggestion {
   suggested: Partial<EndpointCreate>;
   confidence: number;
   parser: "json" | "dotenv" | "curl" | "none";
+}
+
+export interface EndpointUpdate {
+  name?: string;
+  sdk?: Sdk;
+  base_url?: string;
+  api_key?: string;
+  note?: string;
 }
