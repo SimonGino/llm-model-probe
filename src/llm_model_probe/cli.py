@@ -301,6 +301,76 @@ def dump(
         print(text)
 
 
+from .registry_io import (
+    LoadConflict,
+    LoadFormatError,
+    LoadReport,
+    load_endpoints,
+)
+
+
+def _print_load_report(report: LoadReport) -> None:
+    total_written = len(report.imported) + len(report.replaced)
+    detail = ""
+    if report.replaced:
+        detail = f" (new {len(report.imported)}, replaced {len(report.replaced)})"
+    console.print(
+        f"[green]✓[/green] imported {total_written} endpoints{detail}"
+    )
+    if report.skipped:
+        names = ", ".join(report.skipped)
+        console.print(
+            f"  · skipped {len(report.skipped)} conflict(s): {names} "
+            "(use --on-conflict=replace to override)"
+        )
+    if report.missing_keys:
+        names = ", ".join(report.missing_keys)
+        console.print(
+            f"  · {len(report.missing_keys)} endpoint(s) have no api_key: "
+            f"{names} — fill in via the web UI's edit dialog"
+        )
+
+
+@app.command()
+def load(
+    path: str = typer.Argument(..., metavar="FILE"),
+    on_conflict: str = typer.Option(
+        "skip", "--on-conflict",
+        help="Strategy when an endpoint name already exists: skip | replace | error",
+    ),
+) -> None:
+    """Load endpoints from a `probe dump` file."""
+    if on_conflict not in ("skip", "replace", "error"):
+        raise typer.BadParameter("--on-conflict must be skip | replace | error")
+
+    file = Path(path)
+    if not file.exists():
+        console.print(f"[red]✗[/red] file not found: {path}")
+        raise typer.Exit(1)
+    try:
+        text = file.read_text(encoding="utf-8")
+    except OSError as e:
+        console.print(f"[red]✗[/red] cannot read {path}: {e}")
+        raise typer.Exit(1)
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as e:
+        console.print(f"[red]✗[/red] not valid JSON: {e}")
+        raise typer.Exit(1)
+
+    store = _store()
+    try:
+        report = load_endpoints(payload, store, on_conflict=on_conflict)
+    except LoadFormatError as e:
+        console.print(f"[red]✗[/red] {e}")
+        raise typer.Exit(1)
+    except LoadConflict as e:
+        console.print(f"[red]✗[/red] {e}")
+        raise typer.Exit(2)
+
+    _print_load_report(report)
+
+
 @app.command()
 def ui(
     port: int = typer.Option(8765, "--port"),
