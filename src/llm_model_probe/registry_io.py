@@ -227,46 +227,49 @@ def load_endpoints(
                     "(use --on-conflict=replace to override)"
                 )
 
-    now_iso = datetime.now().isoformat(timespec="seconds")
+    now_iso = _iso(datetime.now())
 
-    with sqlite3.connect(store._path) as conn:
-        conn.execute("PRAGMA foreign_keys = ON")
-        try:
-            for action, r, existing_id in plan:
-                key = r.api_key if r.api_key is not None else ""
-                if not key:
-                    report.missing_keys.append(r.name)
-                if action == "insert":
-                    conn.execute(
-                        """INSERT INTO endpoints
-                           (id, name, sdk, base_url, api_key, mode,
-                            models_json, note, list_error, tags_json,
-                            stale_since, created_at, updated_at)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (
-                            r.id, r.name, r.sdk, r.base_url, key, r.mode,
-                            json.dumps(r.models), r.note, None,
-                            json.dumps(r.tags), None,
-                            r.created_at or now_iso,
-                            r.updated_at or now_iso,
-                        ),
-                    )
-                else:  # "update" — replace path
-                    conn.execute(
-                        """UPDATE endpoints SET
-                              name = ?, sdk = ?, base_url = ?,
-                              api_key = ?, mode = ?, models_json = ?,
-                              note = ?, tags_json = ?, updated_at = ?
-                           WHERE id = ?""",
-                        (
-                            r.name, r.sdk, r.base_url, key, r.mode,
-                            json.dumps(r.models), r.note,
-                            json.dumps(r.tags), now_iso, existing_id,
-                        ),
-                    )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+    # Bypass EndpointStore's per-call connections to keep the whole batch atomic.
+    conn = sqlite3.connect(store._path)
+    conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        for action, r, existing_id in plan:
+            key = r.api_key if r.api_key is not None else ""
+            if not key:  # treat both None and "" as "no key in file"
+                report.missing_keys.append(r.name)
+            if action == "insert":
+                conn.execute(
+                    """INSERT INTO endpoints
+                       (id, name, sdk, base_url, api_key, mode,
+                        models_json, note, list_error, tags_json,
+                        stale_since, created_at, updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        r.id, r.name, r.sdk, r.base_url, key, r.mode,
+                        json.dumps(r.models), r.note, None,
+                        json.dumps(r.tags), None,
+                        r.created_at or now_iso,
+                        r.updated_at or now_iso,
+                    ),
+                )
+            else:  # "update" — replace path
+                conn.execute(
+                    """UPDATE endpoints SET
+                          name = ?, sdk = ?, base_url = ?,
+                          api_key = ?, mode = ?, models_json = ?,
+                          note = ?, tags_json = ?, updated_at = ?
+                       WHERE id = ?""",
+                    (
+                        r.name, r.sdk, r.base_url, key, r.mode,
+                        json.dumps(r.models), r.note,
+                        json.dumps(r.tags), now_iso, existing_id,
+                    ),
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
     return report
