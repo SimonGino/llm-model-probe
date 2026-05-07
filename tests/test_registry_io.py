@@ -241,3 +241,53 @@ def test_conflict_skip_leaves_existing_untouched(
     assert fresh.id == local.id
     assert fresh.api_key == "sk-LOCAL"  # untouched
     assert fresh.base_url == "https://local.example.com/v1"
+
+
+from llm_model_probe.models import ModelResult
+
+
+def test_conflict_replace_overwrites_but_preserves_local_id_and_results(
+    store: EndpointStore,
+) -> None:
+    local = _seed(store, "alpha")
+    # Seed a model_result so we can assert the FK row survives.
+    store.replace_model_results(
+        local.id,
+        [
+            ModelResult(
+                local.id, "local-model", "discovered", "available",
+                100, last_tested_at=datetime(2026, 5, 1),
+            )
+        ],
+    )
+
+    payload = _v1_payload([
+        _row(
+            "alpha",
+            id="ep_FROM_FILE",
+            api_key="sk-FILE",
+            mode="specified",
+            models=["m-from-file"],
+            tags=["from-file"],
+        )
+    ])
+
+    report = load_endpoints(payload, store, on_conflict="replace")
+
+    assert report.replaced == ["alpha"]
+    assert report.imported == []
+    assert report.skipped == []
+
+    fresh = store.get_endpoint("alpha")
+    assert fresh is not None
+    # Local id preserved → model_results FK still valid:
+    assert fresh.id == local.id
+    # Other fields overwritten:
+    assert fresh.api_key == "sk-FILE"
+    assert fresh.mode == "specified"
+    assert fresh.models == ["m-from-file"]
+    assert fresh.tags == ["from-file"]
+
+    # model_results row survived:
+    results = store.list_model_results(local.id)
+    assert {r.model_id for r in results} == {"local-model"}
