@@ -364,3 +364,15 @@ def test_load_null_api_key_becomes_empty_string_and_reported(
     with_key = store.get_endpoint("with-key")
     assert with_key is not None
     assert with_key.api_key == "sk-real"
+
+
+def test_load_normalizes_base_url(store: EndpointStore) -> None:
+    row = _row("alpha")
+    row["base_url"] = "https://api.example.com/v1/chat/completions"
+    payload = _v1_payload([row])
+
+    load_endpoints(payload, store, on_conflict="skip")
+
+    fresh = store.get_endpoint("alpha")
+    assert fresh is not None
+    assert fresh.base_url == "https://api.example.com/v1"

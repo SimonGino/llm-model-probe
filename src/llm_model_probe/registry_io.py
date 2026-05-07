@@ -206,6 +206,12 @@ def load_endpoints(
         )
     rows = _validate_envelope(payload)
 
+    # Normalize base_url after validation. Function-local import to avoid
+    # a module-eval-time cycle once api.py imports from registry_io.
+    from .api import normalize_base_url
+    for r in rows:
+        r.base_url = normalize_base_url(r.base_url)
+
     existing_by_name = {ep.name: ep for ep in store.list_endpoints()}
     existing_by_id = {ep.id: ep for ep in existing_by_name.values()}
     report = LoadReport()
