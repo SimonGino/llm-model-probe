@@ -200,3 +200,44 @@ def test_load_rejects_models_not_list(store: EndpointStore) -> None:
     row["models"] = "gpt-4o"  # string, not list
     with pytest.raises(LoadFormatError, match="non-string-list"):
         load_endpoints(_v1_payload([row]), store, on_conflict="skip")
+
+
+from llm_model_probe.models import Endpoint, new_endpoint_id
+
+
+def _seed(store: EndpointStore, name: str = "alpha") -> Endpoint:
+    ep = Endpoint(
+        id=new_endpoint_id(),
+        name=name,
+        sdk="openai",
+        base_url="https://local.example.com/v1",
+        api_key="sk-LOCAL",
+        mode="discover",
+        models=["local-model"],
+        note="local original",
+        tags=["local"],
+    )
+    store.insert_endpoint(ep)
+    return ep
+
+
+def test_conflict_skip_leaves_existing_untouched(
+    store: EndpointStore,
+) -> None:
+    local = _seed(store, "alpha")
+    payload = _v1_payload([
+        _row("alpha", api_key="sk-FILE"),
+        _row("beta", id="ep_bbb222"),
+    ])
+
+    report = load_endpoints(payload, store, on_conflict="skip")
+
+    assert report.imported == ["beta"]
+    assert report.skipped == ["alpha"]
+    assert report.replaced == []
+
+    fresh = store.get_endpoint("alpha")
+    assert fresh is not None
+    assert fresh.id == local.id
+    assert fresh.api_key == "sk-LOCAL"  # untouched
+    assert fresh.base_url == "https://local.example.com/v1"
