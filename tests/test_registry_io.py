@@ -140,3 +140,63 @@ def test_load_into_empty_store_inserts_everything(
     # created_at/updated_at preserved from file
     assert got["alpha"].created_at == datetime(2026, 5, 1, 10, 0, 0)
     assert got["alpha"].updated_at == datetime(2026, 5, 6, 14, 22, 11)
+
+
+from llm_model_probe.registry_io import LoadFormatError
+
+
+def test_load_rejects_wrong_kind(store: EndpointStore) -> None:
+    bad = {
+        "kind": "something-else",
+        "version": 1,
+        "endpoints": [],
+    }
+    with pytest.raises(LoadFormatError, match="expected"):
+        load_endpoints(bad, store, on_conflict="skip")
+
+
+def test_load_rejects_future_version(store: EndpointStore) -> None:
+    bad = {"kind": SCHEMA_KIND, "version": 2, "endpoints": []}
+    with pytest.raises(LoadFormatError, match="upgrade"):
+        load_endpoints(bad, store, on_conflict="skip")
+
+
+def test_load_rejects_missing_required_field(
+    store: EndpointStore,
+) -> None:
+    row = _row("alpha")
+    del row["sdk"]
+    bad = _v1_payload([row])
+    with pytest.raises(LoadFormatError, match="missing required field 'sdk'"):
+        load_endpoints(bad, store, on_conflict="skip")
+
+
+def test_load_rejects_invalid_sdk(store: EndpointStore) -> None:
+    bad = _v1_payload([_row("alpha", sdk="cohere")])
+    with pytest.raises(LoadFormatError, match="invalid sdk"):
+        load_endpoints(bad, store, on_conflict="skip")
+
+
+def test_load_rejects_invalid_mode(store: EndpointStore) -> None:
+    bad = _v1_payload([_row("alpha", mode="invalid")])
+    with pytest.raises(LoadFormatError, match="invalid mode"):
+        load_endpoints(bad, store, on_conflict="skip")
+
+
+def test_load_rejects_duplicate_name(store: EndpointStore) -> None:
+    bad = _v1_payload([_row("dup", id="ep_a"), _row("dup", id="ep_b")])
+    with pytest.raises(LoadFormatError, match="duplicate name"):
+        load_endpoints(bad, store, on_conflict="skip")
+
+
+def test_load_rejects_duplicate_id(store: EndpointStore) -> None:
+    bad = _v1_payload([_row("a", id="ep_x"), _row("b", id="ep_x")])
+    with pytest.raises(LoadFormatError, match="duplicate id"):
+        load_endpoints(bad, store, on_conflict="skip")
+
+
+def test_load_rejects_models_not_list(store: EndpointStore) -> None:
+    row = _row("alpha")
+    row["models"] = "gpt-4o"  # string, not list
+    with pytest.raises(LoadFormatError, match="non-string-list"):
+        load_endpoints(_v1_payload([row]), store, on_conflict="skip")
