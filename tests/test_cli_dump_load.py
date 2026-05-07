@@ -5,7 +5,6 @@ import json
 import stat
 from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
 from llm_model_probe.cli import app
@@ -222,3 +221,19 @@ def test_load_garbage_file_friendly_error(
     assert result.exit_code != 0
     assert "Traceback" not in result.output
     assert "json" in result.output.lower() or "valid" in result.output.lower()
+
+
+def test_dump_to_unwritable_path_friendly_error(
+    isolated_home: Path, tmp_path: Path
+) -> None:
+    s = EndpointStore()
+    s.init_schema()
+    _seed(s, "alpha")
+    # parent directory does not exist
+    bad = tmp_path / "no-such-dir" / "reg.json"
+
+    result = runner.invoke(app, ["dump", "--output", str(bad)])
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+    assert "cannot write" in result.output.lower() or "no such" in result.output.lower()

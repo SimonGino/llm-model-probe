@@ -6,11 +6,19 @@ import json
 from pathlib import Path
 from typing import Optional
 
+import click
 import typer
 from rich.console import Console
 
 from .models import Endpoint, new_endpoint_id
 from .probe import ProbeRunner
+from .registry_io import (
+    LoadConflict,
+    LoadFormatError,
+    LoadReport,
+    dump_endpoints,
+    load_endpoints,
+)
 from .report import EndpointSnapshot, render_list_table, render_show
 from .settings import load_settings
 from .store import EndpointStore
@@ -261,9 +269,6 @@ def export(
         print(text)
 
 
-from .registry_io import dump_endpoints
-
-
 @app.command()
 def dump(
     output: Optional[str] = typer.Option(
@@ -283,7 +288,11 @@ def dump(
     text = json.dumps(payload, indent=2, ensure_ascii=False)
     if output:
         out_path = Path(output)
-        out_path.write_text(text, encoding="utf-8")
+        try:
+            out_path.write_text(text, encoding="utf-8")
+        except OSError as e:
+            console.print(f"[red]✗[/red] cannot write {output}: {e}")
+            raise typer.Exit(1)
         try:
             out_path.chmod(0o600)
         except OSError:
@@ -299,14 +308,6 @@ def dump(
             )
     else:
         print(text)
-
-
-from .registry_io import (
-    LoadConflict,
-    LoadFormatError,
-    LoadReport,
-    load_endpoints,
-)
 
 
 def _print_load_report(report: LoadReport) -> None:
@@ -336,13 +337,11 @@ def load(
     path: str = typer.Argument(..., metavar="FILE"),
     on_conflict: str = typer.Option(
         "skip", "--on-conflict",
-        help="Strategy when an endpoint name already exists: skip | replace | error",
+        click_type=click.Choice(["skip", "replace", "error"]),
+        help="Strategy when an endpoint name already exists.",
     ),
 ) -> None:
     """Load endpoints from a `probe dump` file."""
-    if on_conflict not in ("skip", "replace", "error"):
-        raise typer.BadParameter("--on-conflict must be skip | replace | error")
-
     file = Path(path)
     if not file.exists():
         console.print(f"[red]✗[/red] file not found: {path}")
