@@ -342,3 +342,25 @@ def test_load_rejects_file_id_collision_with_different_local_name(
     # Local row untouched, file row not inserted.
     assert store.get_endpoint("file-thing") is None
     assert store.get_endpoint("local-thing") is not None
+
+
+def test_load_null_api_key_becomes_empty_string_and_reported(
+    store: EndpointStore,
+) -> None:
+    payload = _v1_payload([
+        _row("with-key", api_key="sk-real"),
+        _row("no-key", id="ep_NK", api_key=None),
+    ])
+
+    report = load_endpoints(payload, store, on_conflict="skip")
+
+    assert sorted(report.imported) == ["no-key", "with-key"]
+    assert report.missing_keys == ["no-key"]
+
+    no_key = store.get_endpoint("no-key")
+    assert no_key is not None
+    assert no_key.api_key == ""
+
+    with_key = store.get_endpoint("with-key")
+    assert with_key is not None
+    assert with_key.api_key == "sk-real"
