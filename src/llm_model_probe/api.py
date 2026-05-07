@@ -180,6 +180,7 @@ class AiParseResponse(BaseModel):
 from fastapi import HTTPException
 
 from .models import Endpoint, ModelResult
+from .registry_io import dump_endpoints
 from .report import mask_api_key
 from .store import EndpointStore
 
@@ -482,9 +483,6 @@ def _apply_outcome(store: EndpointStore, ep: Endpoint, outcome) -> None:
         store.replace_model_results(ep.id, outcome.new_results)
     if not outcome.list_error:
         store.update_endpoint(ep.id, stale_since=None)
-
-
-from .registry_io import dump_endpoints
 
 
 @app.get("/api/registry/dump")
