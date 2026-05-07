@@ -59,3 +59,15 @@ def test_dump_envelope_shape_default_excludes_keys() -> None:
     # Runtime-only fields not exported:
     assert "list_error" not in row
     assert "stale_since" not in row
+
+
+def test_dump_includes_keys_when_flag_set() -> None:
+    eps = [_ep("alpha", api_key="sk-real")]
+    out = dump_endpoints(eps, include_keys=True)
+    assert out["endpoints"][0]["api_key"] == "sk-real"
+
+
+def test_dump_empty_registry_yields_empty_endpoints() -> None:
+    out = dump_endpoints([], include_keys=False)
+    assert out["kind"] == SCHEMA_KIND
+    assert out["endpoints"] == []
