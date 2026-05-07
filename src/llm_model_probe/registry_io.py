@@ -207,12 +207,20 @@ def load_endpoints(
     rows = _validate_envelope(payload)
 
     existing_by_name = {ep.name: ep for ep in store.list_endpoints()}
+    existing_by_id = {ep.id: ep for ep in existing_by_name.values()}
     report = LoadReport()
     plan: list[tuple[str, _Row, str | None]] = []  # (action, row, existing_id)
 
     for r in rows:
         existing = existing_by_name.get(r.name)
         if existing is None:
+            id_owner = existing_by_id.get(r.id)
+            if id_owner is not None:
+                raise LoadFormatError(
+                    f"file id {r.id!r} (for endpoint {r.name!r}) is already "
+                    f"used locally by endpoint {id_owner.name!r}; "
+                    "remove that endpoint or edit the file's id"
+                )
             plan.append(("insert", r, None))
             report.imported.append(r.name)
         else:

@@ -315,3 +315,30 @@ def test_conflict_error_aborts_and_rolls_back(
     fresh = store.get_endpoint("alpha")
     assert fresh is not None
     assert fresh.api_key == "sk-LOCAL"
+
+
+def test_load_rejects_file_id_collision_with_different_local_name(
+    store: EndpointStore,
+) -> None:
+    # Local: name='local-thing' uses id 'ep_SHARED'
+    local = Endpoint(
+        id="ep_SHARED",
+        name="local-thing",
+        sdk="openai",
+        base_url="https://api.example.com/v1",
+        api_key="sk-x",
+        mode="discover",
+        models=[],
+        note="",
+    )
+    store.insert_endpoint(local)
+
+    # File: a different name claims the same id.
+    payload = _v1_payload([_row("file-thing", id="ep_SHARED")])
+
+    with pytest.raises(LoadFormatError, match="local-thing"):
+        load_endpoints(payload, store, on_conflict="skip")
+
+    # Local row untouched, file row not inserted.
+    assert store.get_endpoint("file-thing") is None
+    assert store.get_endpoint("local-thing") is not None
