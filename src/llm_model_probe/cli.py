@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -255,6 +257,46 @@ def export(
 
         Path(output).write_text(text, encoding="utf-8")
         console.print(f"[green]✓[/green] wrote {output}")
+    else:
+        print(text)
+
+
+from .registry_io import dump_endpoints
+
+
+@app.command()
+def dump(
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Output file; default stdout"
+    ),
+    include_keys: bool = typer.Option(
+        False, "--include-keys",
+        help="Include api_key in the output. WARNING: keys are written in plaintext.",
+    ),
+) -> None:
+    """Dump the registry to JSON for re-import on another machine."""
+    store = _store()
+    payload = dump_endpoints(
+        store.list_endpoints(),
+        include_keys=include_keys,
+    )
+    text = json.dumps(payload, indent=2, ensure_ascii=False)
+    if output:
+        out_path = Path(output)
+        out_path.write_text(text, encoding="utf-8")
+        try:
+            out_path.chmod(0o600)
+        except OSError:
+            pass  # best effort on platforms without chmod
+        console.print(
+            f"[green]✓[/green] wrote {output} "
+            f"({len(payload['endpoints'])} endpoints)"
+        )
+        if include_keys:
+            console.print(
+                "[yellow]![/yellow] file contains plaintext API keys; "
+                "chmod 0600 applied"
+            )
     else:
         print(text)
 
