@@ -6,10 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from llm_model_probe.models import Endpoint, new_endpoint_id
+from llm_model_probe.models import Endpoint, ModelResult, new_endpoint_id
 from llm_model_probe.registry_io import (
     SCHEMA_KIND,
     SCHEMA_VERSION,
+    LoadConflict,
+    LoadFormatError,
     dump_endpoints,
     load_endpoints,
 )
@@ -142,9 +144,6 @@ def test_load_into_empty_store_inserts_everything(
     assert got["alpha"].updated_at == datetime(2026, 5, 6, 14, 22, 11)
 
 
-from llm_model_probe.registry_io import LoadFormatError
-
-
 def test_load_rejects_wrong_kind(store: EndpointStore) -> None:
     bad = {
         "kind": "something-else",
@@ -202,9 +201,6 @@ def test_load_rejects_models_not_list(store: EndpointStore) -> None:
         load_endpoints(_v1_payload([row]), store, on_conflict="skip")
 
 
-from llm_model_probe.models import Endpoint, new_endpoint_id
-
-
 def _seed(store: EndpointStore, name: str = "alpha") -> Endpoint:
     ep = Endpoint(
         id=new_endpoint_id(),
@@ -241,9 +237,6 @@ def test_conflict_skip_leaves_existing_untouched(
     assert fresh.id == local.id
     assert fresh.api_key == "sk-LOCAL"  # untouched
     assert fresh.base_url == "https://local.example.com/v1"
-
-
-from llm_model_probe.models import ModelResult
 
 
 def test_conflict_replace_overwrites_but_preserves_local_id_and_results(
@@ -291,9 +284,6 @@ def test_conflict_replace_overwrites_but_preserves_local_id_and_results(
     # model_results row survived:
     results = store.list_model_results(local.id)
     assert {r.model_id for r in results} == {"local-model"}
-
-
-from llm_model_probe.registry_io import LoadConflict
 
 
 def test_conflict_error_aborts_and_rolls_back(
