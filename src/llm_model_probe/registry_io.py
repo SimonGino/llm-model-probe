@@ -147,7 +147,7 @@ def _parse_row(raw: dict, idx: int) -> _Row:
         mode=raw["mode"],
         models=list(raw["models"]),
         tags=list(raw["tags"]),
-        note=str(raw["note"]),
+        note="" if raw["note"] is None else str(raw["note"]),
         created_at=raw.get("created_at"),
         updated_at=raw.get("updated_at"),
     )

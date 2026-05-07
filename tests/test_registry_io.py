@@ -366,3 +366,15 @@ def test_load_normalizes_base_url(store: EndpointStore) -> None:
     fresh = store.get_endpoint("alpha")
     assert fresh is not None
     assert fresh.base_url == "https://api.example.com/v1"
+
+
+def test_load_null_note_becomes_empty_string(store: EndpointStore) -> None:
+    row = _row("alpha")
+    row["note"] = None
+    payload = _v1_payload([row])
+
+    load_endpoints(payload, store, on_conflict="skip")
+
+    fresh = store.get_endpoint("alpha")
+    assert fresh is not None
+    assert fresh.note == ""
