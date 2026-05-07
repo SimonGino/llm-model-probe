@@ -291,3 +291,27 @@ def test_conflict_replace_overwrites_but_preserves_local_id_and_results(
     # model_results row survived:
     results = store.list_model_results(local.id)
     assert {r.model_id for r in results} == {"local-model"}
+
+
+from llm_model_probe.registry_io import LoadConflict
+
+
+def test_conflict_error_aborts_and_rolls_back(
+    store: EndpointStore,
+) -> None:
+    _seed(store, "alpha")
+
+    payload = _v1_payload([
+        _row("brand-new", id="ep_NEW1"),  # would insert if we got that far
+        _row("alpha"),                     # triggers the error
+    ])
+
+    with pytest.raises(LoadConflict, match="alpha"):
+        load_endpoints(payload, store, on_conflict="error")
+
+    # 'brand-new' must NOT be in the store — the whole batch is rejected.
+    assert store.get_endpoint("brand-new") is None
+    # 'alpha' is unchanged.
+    fresh = store.get_endpoint("alpha")
+    assert fresh is not None
+    assert fresh.api_key == "sk-LOCAL"
