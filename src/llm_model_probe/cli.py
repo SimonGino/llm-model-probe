@@ -2,13 +2,23 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 from typing import Optional
 
+import click
 import typer
 from rich.console import Console
 
 from .models import Endpoint, new_endpoint_id
 from .probe import ProbeRunner
+from .registry_io import (
+    LoadConflict,
+    LoadFormatError,
+    LoadReport,
+    dump_endpoints,
+    load_endpoints,
+)
 from .report import EndpointSnapshot, render_list_table, render_show
 from .settings import load_settings
 from .store import EndpointStore
@@ -257,6 +267,107 @@ def export(
         console.print(f"[green]✓[/green] wrote {output}")
     else:
         print(text)
+
+
+@app.command()
+def dump(
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Output file; default stdout"
+    ),
+    include_keys: bool = typer.Option(
+        False, "--include-keys",
+        help="Include api_key in the output. WARNING: keys are written in plaintext.",
+    ),
+) -> None:
+    """Dump the registry to JSON for re-import on another machine."""
+    store = _store()
+    payload = dump_endpoints(
+        store.list_endpoints(),
+        include_keys=include_keys,
+    )
+    text = json.dumps(payload, indent=2, ensure_ascii=False)
+    if output:
+        out_path = Path(output)
+        try:
+            out_path.write_text(text, encoding="utf-8")
+        except OSError as e:
+            console.print(f"[red]✗[/red] cannot write {output}: {e}")
+            raise typer.Exit(1)
+        try:
+            out_path.chmod(0o600)
+        except OSError:
+            pass  # best effort on platforms without chmod
+        console.print(
+            f"[green]✓[/green] wrote {output} "
+            f"({len(payload['endpoints'])} endpoints)"
+        )
+        if include_keys:
+            console.print(
+                "[yellow]![/yellow] file contains plaintext API keys; "
+                "chmod 0600 applied"
+            )
+    else:
+        print(text)
+
+
+def _print_load_report(report: LoadReport) -> None:
+    total_written = len(report.imported) + len(report.replaced)
+    detail = ""
+    if report.replaced:
+        detail = f" (new {len(report.imported)}, replaced {len(report.replaced)})"
+    console.print(
+        f"[green]✓[/green] imported {total_written} endpoints{detail}"
+    )
+    if report.skipped:
+        names = ", ".join(report.skipped)
+        console.print(
+            f"  · skipped {len(report.skipped)} conflict(s): {names} "
+            "(use --on-conflict=replace to override)"
+        )
+    if report.missing_keys:
+        names = ", ".join(report.missing_keys)
+        console.print(
+            f"  · {len(report.missing_keys)} endpoint(s) have no api_key: "
+            f"{names} — fill in via the web UI's edit dialog"
+        )
+
+
+@app.command()
+def load(
+    path: str = typer.Argument(..., metavar="FILE"),
+    on_conflict: str = typer.Option(
+        "skip", "--on-conflict",
+        click_type=click.Choice(["skip", "replace", "error"]),
+        help="Strategy when an endpoint name already exists.",
+    ),
+) -> None:
+    """Load endpoints from a `probe dump` file."""
+    file = Path(path)
+    if not file.exists():
+        console.print(f"[red]✗[/red] file not found: {path}")
+        raise typer.Exit(1)
+    try:
+        text = file.read_text(encoding="utf-8")
+    except OSError as e:
+        console.print(f"[red]✗[/red] cannot read {path}: {e}")
+        raise typer.Exit(1)
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as e:
+        console.print(f"[red]✗[/red] not valid JSON: {e}")
+        raise typer.Exit(1)
+
+    store = _store()
+    try:
+        report = load_endpoints(payload, store, on_conflict=on_conflict)
+    except LoadFormatError as e:
+        console.print(f"[red]✗[/red] {e}")
+        raise typer.Exit(1)
+    except LoadConflict as e:
+        console.print(f"[red]✗[/red] {e}")
+        raise typer.Exit(2)
+
+    _print_load_report(report)
 
 
 @app.command()

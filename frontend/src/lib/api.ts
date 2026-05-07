@@ -87,3 +87,27 @@ export const api = {
   aiParse: (blob: string) =>
     req<AiParseResult>("POST", "/api/ai-parse", { blob }),
 };
+
+export async function downloadRegistry(
+  includeKeys: boolean,
+): Promise<{ blob: Blob; filename: string }> {
+  const token = auth.get();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const url = `/api/registry/dump?include_keys=${includeKeys ? "true" : "false"}`;
+  const r = await fetch(url, { headers });
+  if (r.status === 401) {
+    auth.clear();
+    throw new UnauthorizedError();
+  }
+  if (!r.ok) {
+    throw new Error(`HTTP ${r.status}`);
+  }
+  const blob = await r.blob();
+  const cd = r.headers.get("Content-Disposition") ?? "";
+  const m = cd.match(/filename="([^"]+)"/);
+  const filename =
+    m?.[1] ??
+    `llm-model-probe-registry-${new Date().toISOString().slice(0, 10)}.json`;
+  return { blob, filename };
+}

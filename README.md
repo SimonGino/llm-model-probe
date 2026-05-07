@@ -139,6 +139,27 @@ Features:
 
 UI binds to `127.0.0.1` by default. API keys are stored in the same SQLite file as the CLI; both share `~/.llm-model-probe/probes.db`.
 
+## Migrating between machines (dump / load)
+
+The registry (endpoints + their api keys) lives in `~/.llm-model-probe/probes.db`. To move it to another machine — for example, when your test box and prod box drifted — use `probe dump` and `probe load`:
+
+```bash
+# On the source machine
+probe dump --include-keys -o registry.json
+scp registry.json prod-box:/tmp/
+
+# On the destination
+probe load /tmp/registry.json                       # default: skip name conflicts
+probe load /tmp/registry.json --on-conflict=replace # overwrite local on conflict
+probe load /tmp/registry.json --on-conflict=error   # abort if any conflict
+```
+
+By default `probe dump` writes `api_key: null` for every endpoint — safe to commit, share, or sync. Pass `--include-keys` to include plaintext keys; the output file is `chmod 0600`.
+
+The web UI has a matching `Export` button (with the same `Include API keys` checkbox). There is no UI import — load is a CLI-only operation.
+
+The dump format is endpoints-only: probe results, the discover-time filter list, and machine-local settings are not included. Run `probe retest --all` after a load to re-derive results.
+
 ## Docker
 
 ```bash

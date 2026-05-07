@@ -11,6 +11,7 @@ import EndpointDetailPane from "@/components/EndpointDetailPane";
 import AddEndpointDialog from "@/components/AddEndpointDialog";
 import LoginScreen from "@/components/LoginScreen";
 import SettingsModal from "@/components/SettingsModal";
+import ExportRegistryButton from "@/components/ExportRegistryButton";
 import { BrandMark, Icon } from "@/components/atoms";
 
 export default function App() {
@@ -289,6 +290,7 @@ function TopBar({
         <Icon name="settings" size={13} />
       </button>
       <ThemeToggle />
+      <ExportRegistryButton />
       <button
         className="btn"
         onClick={onRetestAll}
