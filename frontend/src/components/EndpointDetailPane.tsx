@@ -620,6 +620,11 @@ function ModelGroup({
   title,
   tone,
   rows,
+  subGroups,
+  parentKey,
+  collapsed,
+  toggleCollapsed,
+  isSearching,
   checked,
   toggle,
   toggleAll,
@@ -632,6 +637,11 @@ function ModelGroup({
   title: string;
   tone: "ok" | "bad" | "info" | "muted";
   rows: string[];
+  subGroups?: ProviderGroup[];
+  parentKey?: string;
+  collapsed?: Set<string>;
+  toggleCollapsed?: (parentKey: string, providerKey: string) => void;
+  isSearching?: boolean;
   checked: Set<string>;
   toggle: (m: string) => void;
   toggleAll: (rows: string[]) => void;
@@ -647,6 +657,7 @@ function ModelGroup({
     info: "var(--info)",
     muted: "var(--text-muted)",
   }[tone];
+  const allRows = subGroups ? subGroups.flatMap((g) => g.rows) : rows;
   return (
     <div style={{ marginBottom: 14 }}>
       <div
@@ -659,8 +670,8 @@ function ModelGroup({
         }}
       >
         <TriCheckbox
-          state={triState(rows, checked)}
-          onClick={() => toggleAll(rows)}
+          state={triState(allRows, checked)}
+          onClick={() => toggleAll(allRows)}
           title={`全选/全不选 ${title}`}
         />
         <span className="dot" style={{ background: color }} />
@@ -676,45 +687,70 @@ function ModelGroup({
           {title}
         </span>
         <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
-          {rows.length}
+          {allRows.length}
         </span>
       </div>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-          gap: 1,
-          border: "1px solid var(--border)",
-          borderRadius: 7,
-          overflow: "hidden",
-          background: "var(--border)",
-        }}
-      >
-        {rows.map((m) => {
-          const r = resultByModel.get(m);
-          const te = orch.errorFor(ep.id, m);
-          const filterSkip = ep.excluded_by_filter.includes(m);
+      {subGroups && parentKey ? (
+        subGroups.map((g) => {
+          const k = `${parentKey}:${g.key}`;
+          const isCollapsed = isSearching
+            ? false
+            : (collapsed?.has(k) ?? false);
           return (
-            <ModelRow
-              key={m}
-              model={m}
-              result={r ?? null}
-              transientError={te}
-              filterSkip={filterSkip}
-              checked={checked.has(m)}
-              toggle={() => toggle(m)}
+            <ProviderSubGroup
+              key={g.key}
+              providerKey={g.key}
+              rows={g.rows}
+              collapsed={isCollapsed}
+              onToggleCollapsed={() =>
+                toggleCollapsed?.(parentKey, g.key)
+              }
+              checked={checked}
+              toggle={toggle}
+              toggleAll={toggleAll}
+              resultByModel={resultByModel}
+              orch={orch}
+              ep={ep}
               stale={stale}
-              pulse={!!pulse}
             />
           );
-        })}
-      </div>
+        })
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+            gap: 1,
+            border: "1px solid var(--border)",
+            borderRadius: 7,
+            overflow: "hidden",
+            background: "var(--border)",
+          }}
+        >
+          {rows.map((m) => {
+            const r = resultByModel.get(m);
+            const te = orch.errorFor(ep.id, m);
+            const filterSkip = ep.excluded_by_filter.includes(m);
+            return (
+              <ModelRow
+                key={m}
+                model={m}
+                result={r ?? null}
+                transientError={te}
+                filterSkip={filterSkip}
+                checked={checked.has(m)}
+                toggle={() => toggle(m)}
+                stale={stale}
+                pulse={!!pulse}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
-// @ts-expect-error -- wired in Task 5; unused until then
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ProviderSubGroup({
   providerKey,
   rows,
