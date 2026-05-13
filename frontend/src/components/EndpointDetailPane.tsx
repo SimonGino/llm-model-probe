@@ -13,7 +13,7 @@ import ApiKeyReveal from "./ApiKeyReveal";
 import AddEndpointDialog from "./AddEndpointDialog";
 import { relative } from "@/lib/format";
 import type { EndpointDetail, ModelResultPublic } from "@/lib/types";
-import { ProviderIcon, detectProvider } from "@/lib/provider";
+import { ProviderIcon, detectProvider, type ProviderKey } from "@/lib/provider";
 
 type SortMode = "default" | "provider" | "name";
 
@@ -844,6 +844,32 @@ function ModelStatus({
   return (
     <span style={{ fontSize: 11, color: "var(--text-faint)" }}>untested</span>
   );
+}
+
+type ProviderGroup = {
+  key: ProviderKey | "other";
+  rows: string[];
+};
+
+// @ts-expect-error -- wired in Task 6; unused until then
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function groupByProvider(rows: string[]): ProviderGroup[] {
+  const buckets = new Map<string, string[]>();
+  for (const m of rows) {
+    const k = detectProvider(m);
+    const bucket = k === "unknown" ? "other" : k;
+    if (!buckets.has(bucket)) buckets.set(bucket, []);
+    buckets.get(bucket)!.push(m);
+  }
+  for (const arr of buckets.values()) arr.sort((a, b) => a.localeCompare(b));
+  return [...buckets.entries()]
+    .map(([key, rows]) => ({ key: key as ProviderKey | "other", rows }))
+    .sort((a, b) => {
+      if (a.key === "other") return 1;
+      if (b.key === "other") return -1;
+      if (a.rows.length !== b.rows.length) return b.rows.length - a.rows.length;
+      return a.key.localeCompare(b.key);
+    });
 }
 
 function latencyTone(ms: number): { color: string; label: string } {
