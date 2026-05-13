@@ -33,6 +33,9 @@ export default function EndpointDetailPane({
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [modelSearch, setModelSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("default");
+  // @ts-expect-error -- wired in Task 6; unused until then
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
@@ -40,7 +43,13 @@ export default function EndpointDetailPane({
     const excl = new Set(detail.data.excluded_by_filter);
     setChecked(new Set(detail.data.models.filter((m) => !excl.has(m))));
     setModelSearch("");
+    setCollapsed(new Set());
   }, [detail.data?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (sortMode !== "provider-group") setCollapsed(new Set());
+  }, [sortMode]);
 
   const resultByModel = useMemo(() => {
     const m = new Map<string, ModelResultPublic>();
@@ -80,6 +89,18 @@ export default function EndpointDetailPane({
       const n = new Set(prev);
       if (allChecked) for (const m of rows) n.delete(m);
       else for (const m of rows) n.add(m);
+      return n;
+    });
+  }
+
+// @ts-expect-error -- wired in Task 6; unused until then
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+  function toggleCollapsed(parentKey: string, providerKey: string) {
+    const k = `${parentKey}:${providerKey}`;
+    setCollapsed((prev) => {
+      const n = new Set(prev);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
       return n;
     });
   }
