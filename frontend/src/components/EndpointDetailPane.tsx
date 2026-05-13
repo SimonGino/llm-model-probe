@@ -713,6 +713,127 @@ function ModelGroup({
   );
 }
 
+// @ts-expect-error -- wired in Task 5; unused until then
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function ProviderSubGroup({
+  providerKey,
+  rows,
+  collapsed,
+  onToggleCollapsed,
+  checked,
+  toggle,
+  toggleAll,
+  resultByModel,
+  orch,
+  ep,
+  stale,
+}: {
+  providerKey: ProviderKey | "other";
+  rows: string[];
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  checked: Set<string>;
+  toggle: (m: string) => void;
+  toggleAll: (rows: string[]) => void;
+  resultByModel: Map<string, ModelResultPublic>;
+  orch: ReturnType<typeof useProbeOrchestrator>;
+  ep: EndpointDetail;
+  stale: boolean;
+}) {
+  const iconModel = rows[0] ?? "";
+  return (
+    <div
+      style={{
+        marginBottom: 8,
+        paddingLeft: 8,
+        borderLeft: "1px solid var(--border)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          marginBottom: 5,
+        }}
+      >
+        <TriCheckbox
+          state={triState(rows, checked)}
+          onClick={() => toggleAll(rows)}
+          title={`全选/全不选 ${providerKey}`}
+        />
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            flex: 1,
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            color: "var(--text)",
+            textAlign: "left",
+          }}
+          aria-expanded={!collapsed}
+        >
+          <ProviderIcon modelId={iconModel} size={12} />
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: 0.3,
+            }}
+          >
+            {providerKey}
+          </span>
+          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+            {rows.length}
+          </span>
+          <Icon
+            name={collapsed ? "chevron-right" : "chevron-down"}
+            size={11}
+          />
+        </button>
+      </div>
+      {!collapsed && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+            gap: 1,
+            border: "1px solid var(--border)",
+            borderRadius: 7,
+            overflow: "hidden",
+            background: "var(--border)",
+          }}
+        >
+          {rows.map((m) => {
+            const r = resultByModel.get(m);
+            const te = orch.errorFor(ep.id, m);
+            const filterSkip = ep.excluded_by_filter.includes(m);
+            return (
+              <ModelRow
+                key={m}
+                model={m}
+                result={r ?? null}
+                transientError={te}
+                filterSkip={filterSkip}
+                checked={checked.has(m)}
+                toggle={() => toggle(m)}
+                stale={stale}
+                pulse={false}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ModelRow({
   model,
   result,
