@@ -44,11 +44,6 @@ export default function EndpointDetailPane({
     setCollapsed(new Set());
   }, [detail.data?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (sortMode !== "provider-group") setCollapsed(new Set());
-  }, [sortMode]);
-
   const resultByModel = useMemo(() => {
     const m = new Map<string, ModelResultPublic>();
     if (detail.data) for (const r of detail.data.results) m.set(r.model_id, r);
@@ -433,7 +428,13 @@ export default function EndpointDetailPane({
                 style={{ paddingLeft: 27, height: 26, fontSize: 11 }}
               />
             </div>
-            <SortControls mode={sortMode} setMode={setSortMode} />
+            <SortControls
+              mode={sortMode}
+              setMode={(m) => {
+                setSortMode(m);
+                if (m !== "provider-group") setCollapsed(new Set());
+              }}
+            />
             <div style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
               {checkedVisible.length} selected
@@ -737,36 +738,16 @@ function ModelGroup({
           );
         })
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-            gap: 1,
-            border: "1px solid var(--border)",
-            borderRadius: 7,
-            overflow: "hidden",
-            background: "var(--border)",
-          }}
-        >
-          {rows.map((m) => {
-            const r = resultByModel.get(m);
-            const te = orch.errorFor(ep.id, m);
-            const filterSkip = ep.excluded_by_filter.includes(m);
-            return (
-              <ModelRow
-                key={m}
-                model={m}
-                result={r ?? null}
-                transientError={te}
-                filterSkip={filterSkip}
-                checked={checked.has(m)}
-                toggle={() => toggle(m)}
-                stale={stale}
-                pulse={!!pulse}
-              />
-            );
-          })}
-        </div>
+        <ModelGrid
+          rows={rows}
+          checked={checked}
+          toggle={toggle}
+          resultByModel={resultByModel}
+          orch={orch}
+          ep={ep}
+          stale={stale}
+          pulse={pulse}
+        />
       )}
     </div>
   );
@@ -856,37 +837,69 @@ function ProviderSubGroup({
         </button>
       </div>
       {!collapsed && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-            gap: 1,
-            border: "1px solid var(--border)",
-            borderRadius: 7,
-            overflow: "hidden",
-            background: "var(--border)",
-          }}
-        >
-          {rows.map((m) => {
-            const r = resultByModel.get(m);
-            const te = orch.errorFor(ep.id, m);
-            const filterSkip = ep.excluded_by_filter.includes(m);
-            return (
-              <ModelRow
-                key={m}
-                model={m}
-                result={r ?? null}
-                transientError={te}
-                filterSkip={filterSkip}
-                checked={checked.has(m)}
-                toggle={() => toggle(m)}
-                stale={stale}
-                pulse={false}
-              />
-            );
-          })}
-        </div>
+        <ModelGrid
+          rows={rows}
+          checked={checked}
+          toggle={toggle}
+          resultByModel={resultByModel}
+          orch={orch}
+          ep={ep}
+          stale={stale}
+        />
       )}
+    </div>
+  );
+}
+
+function ModelGrid({
+  rows,
+  checked,
+  toggle,
+  resultByModel,
+  orch,
+  ep,
+  stale,
+  pulse,
+}: {
+  rows: string[];
+  checked: Set<string>;
+  toggle: (m: string) => void;
+  resultByModel: Map<string, ModelResultPublic>;
+  orch: ReturnType<typeof useProbeOrchestrator>;
+  ep: EndpointDetail;
+  stale: boolean;
+  pulse?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+        gap: 1,
+        border: "1px solid var(--border)",
+        borderRadius: 7,
+        overflow: "hidden",
+        background: "var(--border)",
+      }}
+    >
+      {rows.map((m) => {
+        const r = resultByModel.get(m);
+        const te = orch.errorFor(ep.id, m);
+        const filterSkip = ep.excluded_by_filter.includes(m);
+        return (
+          <ModelRow
+            key={m}
+            model={m}
+            result={r ?? null}
+            transientError={te}
+            filterSkip={filterSkip}
+            checked={checked.has(m)}
+            toggle={() => toggle(m)}
+            stale={stale}
+            pulse={!!pulse}
+          />
+        );
+      })}
     </div>
   );
 }
