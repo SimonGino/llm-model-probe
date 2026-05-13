@@ -15,7 +15,7 @@ import { relative } from "@/lib/format";
 import type { EndpointDetail, ModelResultPublic } from "@/lib/types";
 import { ProviderIcon, detectProvider, type ProviderKey } from "@/lib/provider";
 
-type SortMode = "default" | "provider" | "name";
+type SortMode = "default" | "provider" | "provider-group" | "name";
 
 export default function EndpointDetailPane({
   idOrName,
@@ -885,11 +885,38 @@ function SortControls({
   mode: SortMode;
   setMode: (m: SortMode) => void;
 }) {
-  const opts: Array<[SortMode, string]> = [
-    ["default", "latency"],
-    ["provider", "provider"],
-    ["name", "name"],
+  function onProviderClick() {
+    if (mode === "provider") setMode("provider-group");
+    else if (mode === "provider-group") setMode("default");
+    else setMode("provider");
+  }
+
+  const buttons: Array<{
+    key: string;
+    label: string;
+    onClick: () => void;
+    isActive: boolean;
+  }> = [
+    {
+      key: "default",
+      label: "latency",
+      onClick: () => setMode("default"),
+      isActive: mode === "default",
+    },
+    {
+      key: "provider",
+      label: mode === "provider-group" ? "provider ▾" : "provider",
+      onClick: onProviderClick,
+      isActive: mode === "provider" || mode === "provider-group",
+    },
+    {
+      key: "name",
+      label: "name",
+      onClick: () => setMode("name"),
+      isActive: mode === "name",
+    },
   ];
+
   return (
     <div
       style={{
@@ -902,27 +929,26 @@ function SortControls({
       role="group"
       aria-label="Sort models"
     >
-      {opts.map(([k, label], i) => (
+      {buttons.map((b, i) => (
         <button
-          key={k}
+          key={b.key}
           type="button"
-          aria-pressed={mode === k}
-          onClick={() => setMode(k)}
+          aria-pressed={b.isActive}
+          onClick={b.onClick}
           style={{
             padding: "0 9px",
             border: "none",
             borderRight:
-              i === opts.length - 1 ? "none" : "1px solid var(--border)",
-            background:
-              mode === k ? "var(--bg-hover)" : "var(--bg-elev)",
-            color: mode === k ? "var(--text)" : "var(--text-muted)",
+              i === buttons.length - 1 ? "none" : "1px solid var(--border)",
+            background: b.isActive ? "var(--bg-hover)" : "var(--bg-elev)",
+            color: b.isActive ? "var(--text)" : "var(--text-muted)",
             fontSize: 11,
-            fontWeight: mode === k ? 600 : 500,
+            fontWeight: b.isActive ? 600 : 500,
             cursor: "pointer",
             height: "100%",
           }}
         >
-          {label}
+          {b.label}
         </button>
       ))}
     </div>
