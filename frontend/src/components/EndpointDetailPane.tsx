@@ -33,8 +33,6 @@ export default function EndpointDetailPane({
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [modelSearch, setModelSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("default");
-  // @ts-expect-error -- wired in Task 6; unused until then
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [editOpen, setEditOpen] = useState(false);
 
@@ -93,8 +91,6 @@ export default function EndpointDetailPane({
     });
   }
 
-// @ts-expect-error -- wired in Task 6; unused until then
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
   function toggleCollapsed(parentKey: string, providerKey: string) {
     const k = `${parentKey}:${providerKey}`;
     setCollapsed((prev) => {
@@ -172,9 +168,16 @@ export default function EndpointDetailPane({
     return [...rows].sort((a, b) => a.localeCompare(b));
   }
 
-  const availableSorted = applySort(available, "available");
-  const failedSorted = applySort(failed, "failed");
-  const untestedSorted = applySort(untested, "untested");
+  const isGrouping = sortMode === "provider-group";
+  const isSearching = q !== "";
+
+  const availableSorted = isGrouping ? [] : applySort(available, "available");
+  const failedSorted = isGrouping ? [] : applySort(failed, "failed");
+  const untestedSorted = isGrouping ? [] : applySort(untested, "untested");
+
+  const availableGroups = isGrouping ? groupByProvider(available) : undefined;
+  const failedGroups = isGrouping ? groupByProvider(failed) : undefined;
+  const untestedGroups = isGrouping ? groupByProvider(untested) : undefined;
 
   const checkedVisible = visible.filter((m) => checked.has(m));
 
@@ -467,11 +470,17 @@ export default function EndpointDetailPane({
               pulse
             />
           )}
-          {availableSorted.length > 0 && (
+          {(availableSorted.length > 0 ||
+            (availableGroups && availableGroups.length > 0)) && (
             <ModelGroup
               title="Available"
               tone="ok"
               rows={availableSorted}
+              subGroups={availableGroups}
+              parentKey="available"
+              collapsed={collapsed}
+              toggleCollapsed={toggleCollapsed}
+              isSearching={isSearching}
               checked={checked}
               toggle={toggle}
               toggleAll={toggleAll}
@@ -481,11 +490,17 @@ export default function EndpointDetailPane({
               stale={!!d.stale_since}
             />
           )}
-          {failedSorted.length > 0 && (
+          {(failedSorted.length > 0 ||
+            (failedGroups && failedGroups.length > 0)) && (
             <ModelGroup
               title="Failed"
               tone="bad"
               rows={failedSorted}
+              subGroups={failedGroups}
+              parentKey="failed"
+              collapsed={collapsed}
+              toggleCollapsed={toggleCollapsed}
+              isSearching={isSearching}
               checked={checked}
               toggle={toggle}
               toggleAll={toggleAll}
@@ -495,11 +510,17 @@ export default function EndpointDetailPane({
               stale={!!d.stale_since}
             />
           )}
-          {untestedSorted.length > 0 && (
+          {(untestedSorted.length > 0 ||
+            (untestedGroups && untestedGroups.length > 0)) && (
             <ModelGroup
               title="Untested"
               tone="muted"
               rows={untestedSorted}
+              subGroups={untestedGroups}
+              parentKey="untested"
+              collapsed={collapsed}
+              toggleCollapsed={toggleCollapsed}
+              isSearching={isSearching}
               checked={checked}
               toggle={toggle}
               toggleAll={toggleAll}
@@ -1029,8 +1050,6 @@ type ProviderGroup = {
   rows: string[];
 };
 
-// @ts-expect-error -- wired in Task 6; unused until then
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function groupByProvider(rows: string[]): ProviderGroup[] {
   const buckets = new Map<string, string[]>();
   for (const m of rows) {
