@@ -15,7 +15,7 @@ import { relative } from "@/lib/format";
 import type { EndpointDetail, ModelResultPublic } from "@/lib/types";
 import { ProviderIcon, detectProvider, type ProviderKey } from "@/lib/provider";
 
-type SortMode = "default" | "provider" | "provider-group" | "name";
+type SortMode = "default" | "provider-group" | "name";
 
 export default function EndpointDetailPane({
   idOrName,
@@ -132,14 +132,6 @@ export default function EndpointDetailPane({
     else untested.push(m);
   }
   function applySort(rows: string[], section: "available" | "failed" | "untested"): string[] {
-    if (sortMode === "provider") {
-      return [...rows].sort((a, b) => {
-        const pa = detectProvider(a);
-        const pb = detectProvider(b);
-        if (pa !== pb) return pa.localeCompare(pb);
-        return a.localeCompare(b);
-      });
-    }
     if (sortMode === "name") {
       return [...rows].sort((a, b) => a.localeCompare(b));
     }
@@ -1095,36 +1087,13 @@ function SortControls({
   mode: SortMode;
   setMode: (m: SortMode) => void;
 }) {
-  function onProviderClick() {
-    if (mode === "provider") setMode("provider-group");
-    else if (mode === "provider-group") setMode("default");
-    else setMode("provider");
-  }
-
   const buttons: Array<{
-    key: string;
+    key: SortMode;
     label: string;
-    onClick: () => void;
-    isActive: boolean;
   }> = [
-    {
-      key: "default",
-      label: "latency",
-      onClick: () => setMode("default"),
-      isActive: mode === "default",
-    },
-    {
-      key: "provider",
-      label: mode === "provider-group" ? "provider ▾" : "provider",
-      onClick: onProviderClick,
-      isActive: mode === "provider" || mode === "provider-group",
-    },
-    {
-      key: "name",
-      label: "name",
-      onClick: () => setMode("name"),
-      isActive: mode === "name",
-    },
+    { key: "default", label: "latency" },
+    { key: "provider-group", label: "provider" },
+    { key: "name", label: "name" },
   ];
 
   return (
@@ -1139,28 +1108,31 @@ function SortControls({
       role="group"
       aria-label="Sort models"
     >
-      {buttons.map((b, i) => (
-        <button
-          key={b.key}
-          type="button"
-          aria-pressed={b.isActive}
-          onClick={b.onClick}
-          style={{
-            padding: "0 9px",
-            border: "none",
-            borderRight:
-              i === buttons.length - 1 ? "none" : "1px solid var(--border)",
-            background: b.isActive ? "var(--bg-hover)" : "var(--bg-elev)",
-            color: b.isActive ? "var(--text)" : "var(--text-muted)",
-            fontSize: 11,
-            fontWeight: b.isActive ? 600 : 500,
-            cursor: "pointer",
-            height: "100%",
-          }}
-        >
-          {b.label}
-        </button>
-      ))}
+      {buttons.map((b, i) => {
+        const isActive = mode === b.key;
+        return (
+          <button
+            key={b.key}
+            type="button"
+            aria-pressed={isActive}
+            onClick={() => setMode(b.key)}
+            style={{
+              padding: "0 9px",
+              border: "none",
+              borderRight:
+                i === buttons.length - 1 ? "none" : "1px solid var(--border)",
+              background: isActive ? "var(--bg-hover)" : "var(--bg-elev)",
+              color: isActive ? "var(--text)" : "var(--text-muted)",
+              fontSize: 11,
+              fontWeight: isActive ? 600 : 500,
+              cursor: "pointer",
+              height: "100%",
+            }}
+          >
+            {b.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
