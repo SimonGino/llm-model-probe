@@ -13,9 +13,9 @@ import ApiKeyReveal from "./ApiKeyReveal";
 import AddEndpointDialog from "./AddEndpointDialog";
 import { relative } from "@/lib/format";
 import type { EndpointDetail, ModelResultPublic } from "@/lib/types";
-import { ProviderIcon, detectProvider } from "@/lib/provider";
+import { ProviderIcon, detectProvider, type ProviderKey } from "@/lib/provider";
 
-type SortMode = "default" | "provider" | "name";
+type SortMode = "default" | "provider-group" | "name";
 
 export default function EndpointDetailPane({
   idOrName,
@@ -33,6 +33,7 @@ export default function EndpointDetailPane({
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [modelSearch, setModelSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("default");
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
@@ -40,6 +41,7 @@ export default function EndpointDetailPane({
     const excl = new Set(detail.data.excluded_by_filter);
     setChecked(new Set(detail.data.models.filter((m) => !excl.has(m))));
     setModelSearch("");
+    setCollapsed(new Set());
   }, [detail.data?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resultByModel = useMemo(() => {
@@ -84,6 +86,16 @@ export default function EndpointDetailPane({
     });
   }
 
+  function toggleCollapsed(parentKey: string, providerKey: string) {
+    const k = `${parentKey}:${providerKey}`;
+    setCollapsed((prev) => {
+      const n = new Set(prev);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      return n;
+    });
+  }
+
   if (detail.isLoading || !detail.data) {
     return (
       <div style={{ padding: 32, color: "var(--text-muted)" }}>Loading…</div>
@@ -120,14 +132,6 @@ export default function EndpointDetailPane({
     else untested.push(m);
   }
   function applySort(rows: string[], section: "available" | "failed" | "untested"): string[] {
-    if (sortMode === "provider") {
-      return [...rows].sort((a, b) => {
-        const pa = detectProvider(a);
-        const pb = detectProvider(b);
-        if (pa !== pb) return pa.localeCompare(pb);
-        return a.localeCompare(b);
-      });
-    }
     if (sortMode === "name") {
       return [...rows].sort((a, b) => a.localeCompare(b));
     }
@@ -151,9 +155,16 @@ export default function EndpointDetailPane({
     return [...rows].sort((a, b) => a.localeCompare(b));
   }
 
-  const availableSorted = applySort(available, "available");
-  const failedSorted = applySort(failed, "failed");
-  const untestedSorted = applySort(untested, "untested");
+  const isGrouping = sortMode === "provider-group";
+  const isSearching = q !== "";
+
+  const availableSorted = isGrouping ? [] : applySort(available, "available");
+  const failedSorted = isGrouping ? [] : applySort(failed, "failed");
+  const untestedSorted = isGrouping ? [] : applySort(untested, "untested");
+
+  const availableGroups = isGrouping ? groupByProvider(available) : undefined;
+  const failedGroups = isGrouping ? groupByProvider(failed) : undefined;
+  const untestedGroups = isGrouping ? groupByProvider(untested) : undefined;
 
   const checkedVisible = visible.filter((m) => checked.has(m));
 
@@ -409,7 +420,13 @@ export default function EndpointDetailPane({
                 style={{ paddingLeft: 27, height: 26, fontSize: 11 }}
               />
             </div>
-            <SortControls mode={sortMode} setMode={setSortMode} />
+            <SortControls
+              mode={sortMode}
+              setMode={(m) => {
+                setSortMode(m);
+                if (m !== "provider-group") setCollapsed(new Set());
+              }}
+            />
             <div style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
               {checkedVisible.length} selected
@@ -446,11 +463,17 @@ export default function EndpointDetailPane({
               pulse
             />
           )}
-          {availableSorted.length > 0 && (
+          {(availableSorted.length > 0 ||
+            (availableGroups && availableGroups.length > 0)) && (
             <ModelGroup
               title="Available"
               tone="ok"
               rows={availableSorted}
+              subGroups={availableGroups}
+              parentKey="available"
+              collapsed={collapsed}
+              toggleCollapsed={toggleCollapsed}
+              isSearching={isSearching}
               checked={checked}
               toggle={toggle}
               toggleAll={toggleAll}
@@ -460,11 +483,17 @@ export default function EndpointDetailPane({
               stale={!!d.stale_since}
             />
           )}
-          {failedSorted.length > 0 && (
+          {(failedSorted.length > 0 ||
+            (failedGroups && failedGroups.length > 0)) && (
             <ModelGroup
               title="Failed"
               tone="bad"
               rows={failedSorted}
+              subGroups={failedGroups}
+              parentKey="failed"
+              collapsed={collapsed}
+              toggleCollapsed={toggleCollapsed}
+              isSearching={isSearching}
               checked={checked}
               toggle={toggle}
               toggleAll={toggleAll}
@@ -474,11 +503,17 @@ export default function EndpointDetailPane({
               stale={!!d.stale_since}
             />
           )}
-          {untestedSorted.length > 0 && (
+          {(untestedSorted.length > 0 ||
+            (untestedGroups && untestedGroups.length > 0)) && (
             <ModelGroup
               title="Untested"
               tone="muted"
               rows={untestedSorted}
+              subGroups={untestedGroups}
+              parentKey="untested"
+              collapsed={collapsed}
+              toggleCollapsed={toggleCollapsed}
+              isSearching={isSearching}
               checked={checked}
               toggle={toggle}
               toggleAll={toggleAll}
@@ -599,6 +634,11 @@ function ModelGroup({
   title,
   tone,
   rows,
+  subGroups,
+  parentKey,
+  collapsed,
+  toggleCollapsed,
+  isSearching,
   checked,
   toggle,
   toggleAll,
@@ -611,6 +651,11 @@ function ModelGroup({
   title: string;
   tone: "ok" | "bad" | "info" | "muted";
   rows: string[];
+  subGroups?: ProviderGroup[];
+  parentKey?: string;
+  collapsed?: Set<string>;
+  toggleCollapsed?: (parentKey: string, providerKey: string) => void;
+  isSearching?: boolean;
   checked: Set<string>;
   toggle: (m: string) => void;
   toggleAll: (rows: string[]) => void;
@@ -626,6 +671,7 @@ function ModelGroup({
     info: "var(--info)",
     muted: "var(--text-muted)",
   }[tone];
+  const allRows = subGroups ? subGroups.flatMap((g) => g.rows) : rows;
   return (
     <div style={{ marginBottom: 14 }}>
       <div
@@ -638,8 +684,8 @@ function ModelGroup({
         }}
       >
         <TriCheckbox
-          state={triState(rows, checked)}
-          onClick={() => toggleAll(rows)}
+          state={triState(allRows, checked)}
+          onClick={() => toggleAll(allRows)}
           title={`全选/全不选 ${title}`}
         />
         <span className="dot" style={{ background: color }} />
@@ -655,39 +701,197 @@ function ModelGroup({
           {title}
         </span>
         <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
-          {rows.length}
+          {allRows.length}
         </span>
       </div>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-          gap: 1,
-          border: "1px solid var(--border)",
-          borderRadius: 7,
-          overflow: "hidden",
-          background: "var(--border)",
-        }}
-      >
-        {rows.map((m) => {
-          const r = resultByModel.get(m);
-          const te = orch.errorFor(ep.id, m);
-          const filterSkip = ep.excluded_by_filter.includes(m);
+      {subGroups && parentKey ? (
+        subGroups.map((g) => {
+          const k = `${parentKey}:${g.key}`;
+          const isCollapsed = isSearching
+            ? false
+            : (collapsed?.has(k) ?? false);
           return (
-            <ModelRow
-              key={m}
-              model={m}
-              result={r ?? null}
-              transientError={te}
-              filterSkip={filterSkip}
-              checked={checked.has(m)}
-              toggle={() => toggle(m)}
+            <ProviderSubGroup
+              key={g.key}
+              providerKey={g.key}
+              rows={g.rows}
+              collapsed={isCollapsed}
+              onToggleCollapsed={() =>
+                toggleCollapsed?.(parentKey, g.key)
+              }
+              checked={checked}
+              toggle={toggle}
+              toggleAll={toggleAll}
+              resultByModel={resultByModel}
+              orch={orch}
+              ep={ep}
               stale={stale}
-              pulse={!!pulse}
             />
           );
-        })}
+        })
+      ) : (
+        <ModelGrid
+          rows={rows}
+          checked={checked}
+          toggle={toggle}
+          resultByModel={resultByModel}
+          orch={orch}
+          ep={ep}
+          stale={stale}
+          pulse={pulse}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProviderSubGroup({
+  providerKey,
+  rows,
+  collapsed,
+  onToggleCollapsed,
+  checked,
+  toggle,
+  toggleAll,
+  resultByModel,
+  orch,
+  ep,
+  stale,
+}: {
+  providerKey: ProviderKey | "other";
+  rows: string[];
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  checked: Set<string>;
+  toggle: (m: string) => void;
+  toggleAll: (rows: string[]) => void;
+  resultByModel: Map<string, ModelResultPublic>;
+  orch: ReturnType<typeof useProbeOrchestrator>;
+  ep: EndpointDetail;
+  stale: boolean;
+}) {
+  const iconModel = rows[0] ?? "";
+  return (
+    <div
+      style={{
+        marginBottom: 8,
+        paddingLeft: 8,
+        borderLeft: "1px solid var(--border)",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          marginBottom: 5,
+        }}
+      >
+        <TriCheckbox
+          state={triState(rows, checked)}
+          onClick={() => toggleAll(rows)}
+          title={`全选/全不选 ${providerKey}`}
+        />
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            flex: 1,
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            color: "var(--text)",
+            textAlign: "left",
+          }}
+          aria-expanded={!collapsed}
+        >
+          <ProviderIcon modelId={iconModel} size={12} />
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: 0.3,
+            }}
+          >
+            {providerKey}
+          </span>
+          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+            {rows.length}
+          </span>
+          <Icon
+            name={collapsed ? "chevron-right" : "chevron-down"}
+            size={11}
+          />
+        </button>
       </div>
+      {!collapsed && (
+        <ModelGrid
+          rows={rows}
+          checked={checked}
+          toggle={toggle}
+          resultByModel={resultByModel}
+          orch={orch}
+          ep={ep}
+          stale={stale}
+        />
+      )}
+    </div>
+  );
+}
+
+function ModelGrid({
+  rows,
+  checked,
+  toggle,
+  resultByModel,
+  orch,
+  ep,
+  stale,
+  pulse,
+}: {
+  rows: string[];
+  checked: Set<string>;
+  toggle: (m: string) => void;
+  resultByModel: Map<string, ModelResultPublic>;
+  orch: ReturnType<typeof useProbeOrchestrator>;
+  ep: EndpointDetail;
+  stale: boolean;
+  pulse?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+        gap: 1,
+        border: "1px solid var(--border)",
+        borderRadius: 7,
+        overflow: "hidden",
+        background: "var(--border)",
+      }}
+    >
+      {rows.map((m) => {
+        const r = resultByModel.get(m);
+        const te = orch.errorFor(ep.id, m);
+        const filterSkip = ep.excluded_by_filter.includes(m);
+        return (
+          <ModelRow
+            key={m}
+            model={m}
+            result={r ?? null}
+            transientError={te}
+            filterSkip={filterSkip}
+            checked={checked.has(m)}
+            toggle={() => toggle(m)}
+            stale={stale}
+            pulse={!!pulse}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -846,6 +1050,30 @@ function ModelStatus({
   );
 }
 
+type ProviderGroup = {
+  key: ProviderKey | "other";
+  rows: string[];
+};
+
+function groupByProvider(rows: string[]): ProviderGroup[] {
+  const buckets = new Map<string, string[]>();
+  for (const m of rows) {
+    const k = detectProvider(m);
+    const bucket = k === "unknown" ? "other" : k;
+    if (!buckets.has(bucket)) buckets.set(bucket, []);
+    buckets.get(bucket)!.push(m);
+  }
+  for (const arr of buckets.values()) arr.sort((a, b) => a.localeCompare(b));
+  return [...buckets.entries()]
+    .map(([key, rows]) => ({ key: key as ProviderKey | "other", rows }))
+    .sort((a, b) => {
+      if (a.key === "other") return 1;
+      if (b.key === "other") return -1;
+      if (a.rows.length !== b.rows.length) return b.rows.length - a.rows.length;
+      return a.key.localeCompare(b.key);
+    });
+}
+
 function latencyTone(ms: number): { color: string; label: string } {
   if (ms < 500) return { color: "var(--ok)", label: `${ms}ms` };
   if (ms < 2000) return { color: "var(--text-muted)", label: `${ms}ms` };
@@ -859,11 +1087,15 @@ function SortControls({
   mode: SortMode;
   setMode: (m: SortMode) => void;
 }) {
-  const opts: Array<[SortMode, string]> = [
-    ["default", "latency"],
-    ["provider", "provider"],
-    ["name", "name"],
+  const buttons: Array<{
+    key: SortMode;
+    label: string;
+  }> = [
+    { key: "default", label: "latency" },
+    { key: "provider-group", label: "provider" },
+    { key: "name", label: "name" },
   ];
+
   return (
     <div
       style={{
@@ -876,29 +1108,31 @@ function SortControls({
       role="group"
       aria-label="Sort models"
     >
-      {opts.map(([k, label], i) => (
-        <button
-          key={k}
-          type="button"
-          aria-pressed={mode === k}
-          onClick={() => setMode(k)}
-          style={{
-            padding: "0 9px",
-            border: "none",
-            borderRight:
-              i === opts.length - 1 ? "none" : "1px solid var(--border)",
-            background:
-              mode === k ? "var(--bg-hover)" : "var(--bg-elev)",
-            color: mode === k ? "var(--text)" : "var(--text-muted)",
-            fontSize: 11,
-            fontWeight: mode === k ? 600 : 500,
-            cursor: "pointer",
-            height: "100%",
-          }}
-        >
-          {label}
-        </button>
-      ))}
+      {buttons.map((b, i) => {
+        const isActive = mode === b.key;
+        return (
+          <button
+            key={b.key}
+            type="button"
+            aria-pressed={isActive}
+            onClick={() => setMode(b.key)}
+            style={{
+              padding: "0 9px",
+              border: "none",
+              borderRight:
+                i === buttons.length - 1 ? "none" : "1px solid var(--border)",
+              background: isActive ? "var(--bg-hover)" : "var(--bg-elev)",
+              color: isActive ? "var(--text)" : "var(--text-muted)",
+              fontSize: 11,
+              fontWeight: isActive ? 600 : 500,
+              cursor: "pointer",
+              height: "100%",
+            }}
+          >
+            {b.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
